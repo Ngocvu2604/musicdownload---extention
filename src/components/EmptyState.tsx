@@ -1,5 +1,5 @@
 import React from 'react';
-import { Music, ArrowDownToLine, FolderHeart, RotateCw, Radio } from 'lucide-react';
+import { Music, ArrowDownToLine, FolderHeart, RotateCw } from 'lucide-react';
 
 interface EmptyStateProps {
   type: 'home' | 'downloads' | 'library';

@@ -3,9 +3,7 @@ import { UserSettings } from '../types/audio';
 import {
   Sliders,
   Folder,
-  Bell,
   HardDrive,
-  FileText,
   ShieldCheck,
   Check,
   RotateCcw,

@@ -275,7 +275,6 @@
   }
   function inspectMediaElement(element) {
     const isVideo = element instanceof HTMLVideoElement;
-    const isAudio = element instanceof HTMLAudioElement;
     let src = element.currentSrc || element.src;
     if (!src) {
       const sourceEl = element.querySelector("source");

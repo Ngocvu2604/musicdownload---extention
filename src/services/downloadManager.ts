@@ -1,4 +1,4 @@
-import { DownloadItem, AudioFormat } from '../types/audio';
+import { DownloadItem } from '../types/audio';
 import { cleanFilename, getExtensionFromUrl, getFormatFromMimeOrExt } from '../utils/formatters';
 import { storageService } from '../storage/storageService';
 

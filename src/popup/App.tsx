@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   TabType,
   DetectedMedia,
@@ -19,7 +19,7 @@ import { EmptyState } from '../components/EmptyState';
 import { DownloadsView } from '../components/DownloadsView';
 import { LibraryView } from '../components/LibraryView';
 import { SettingsView } from '../components/SettingsView';
-import { Download, CheckSquare, Square, CheckCircle, Info } from 'lucide-react';
+import { Download, CheckSquare, Square, CheckCircle } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('home');
@@ -34,7 +34,6 @@ export const App: React.FC = () => {
   const [currentDomain, setCurrentDomain] = useState<string>('');
   const [currentTabTitle, setCurrentTabTitle] = useState<string>('');
   const [isYouTube, setIsYouTube] = useState<boolean>(false);
-  const [isSoundCloud, setIsSoundCloud] = useState<boolean>(false);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanToast, setScanToast] = useState<string | null>(null);
 
@@ -54,7 +53,7 @@ export const App: React.FC = () => {
 
     try {
       // Send scan message to Background Service Worker to handle injection and scanning
-      const response: any = await new Promise((resolve) => {
+      await new Promise((resolve) => {
         chrome.runtime.sendMessage(
           { type: 'SCAN_MEDIA', tabId },
           (res) => {
@@ -104,7 +103,6 @@ export const App: React.FC = () => {
           setCurrentDomain(domain);
           setCurrentTabTitle(tab.title || '');
           setIsYouTube(domain.includes('youtube.com'));
-          setIsSoundCloud(domain.includes('soundcloud.com'));
 
           // Load cached items first for zero-delay UI
           const cachedItems = await storageService.getTabAudio(tabId);

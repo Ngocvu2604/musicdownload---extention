@@ -92,7 +92,6 @@ class StorageService {
    */
   async addDetectedAudio(item: DetectedMedia): Promise<boolean> {
     try {
-      const key = `tab_audio_${item.tabId}`;
       const items = await this.getTabAudio(item.tabId);
 
       // Check if already detected (deduplicate)

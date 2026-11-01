@@ -1,15 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { HistoryItem, AudioFormat } from '../types/audio';
+import { HistoryItem } from '../types/audio';
 import { formatBytes, formatDate } from '../utils/formatters';
 import {
   Search,
   Heart,
   Trash2,
   Download,
-  Filter,
   Play,
-  ArrowUpDown,
-  FileAudio,
 } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 

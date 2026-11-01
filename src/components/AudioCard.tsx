@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DetectedMedia, AudioFormat, MediaPlaybackStatus, MediaSourceType } from '../types/audio';
+import { DetectedMedia, MediaPlaybackStatus, MediaSourceType } from '../types/audio';
 import { formatBytes, formatDuration } from '../utils/formatters';
 import {
   Play,
@@ -14,7 +14,6 @@ import {
   FileAudio,
   RadioTower,
   Info,
-  AlertCircle,
 } from 'lucide-react';
 
 interface AudioCardProps {

@@ -1,7 +1,6 @@
 import {
   createDetectedMediaItem,
   isDirectAudioUrl,
-  determineSourceType,
 } from '../utils/audioDetector';
 import { DetectedMedia, MediaPlaybackStatus } from '../types/audio';
 
@@ -107,7 +106,6 @@ function extractTitleFromContext(element: HTMLElement): string {
  */
 function inspectMediaElement(element: HTMLMediaElement) {
   const isVideo = element instanceof HTMLVideoElement;
-  const isAudio = element instanceof HTMLAudioElement;
 
   // Obtain active URL
   let src = element.currentSrc || element.src;
