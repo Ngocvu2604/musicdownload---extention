@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  width: 400px;
+  height: 560px;
+  margin: 0;
+  padding: 0;
+  background-color: #101114;
+  color: #FFFFFF;
+  overflow: hidden;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(16, 17, 20, 0.6);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2E303B;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A78BFA;
+}
+
+/* Glassmorphism utility */
+.glass-panel {
+  background: rgba(26, 27, 32, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.glow-primary {
+  box-shadow: 0 0 15px -3px rgba(167, 139, 250, 0.3);
+}
+
+.glow-accent {
+  box-shadow: 0 0 15px -3px rgba(34, 211, 238, 0.3);
+}
+
+/* Range input styling */
+input[type="range"] {
+  accent-color: #A78BFA;
+}
+

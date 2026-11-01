@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AudioFlow Complete Test Suite - Audio & Video Detection</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #101114;
+      color: #FFFFFF;
+      max-width: 860px;
+      margin: 30px auto;
+      padding: 0 24px;
+      line-height: 1.6;
+    }
+    h1 { color: #A78BFA; border-bottom: 1px solid #2E303B; padding-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
+    h2 { color: #22D3EE; font-size: 1.15rem; margin-top: 0; }
+    .card {
+      background: #1A1B20;
+      border: 1px solid #2E303B;
+      border-radius: 14px;
+      padding: 18px 22px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    }
+    audio, video { width: 100%; margin-top: 10px; border-radius: 8px; }
+    .btn-group { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    button.btn {
+      background: #2E303B;
+      color: #FFFFFF;
+      border: 1px solid #3F4250;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    button.btn:hover { background: #7C3AED; color: #fff; border-color: #A78BFA; }
+    button.btn-primary { background: linear-gradient(135deg, #7C3AED, #A78BFA); border: none; }
+    button.btn-primary:hover { opacity: 0.9; }
+    button.btn-accent { background: #06B6D4; color: #000; border: none; }
+    button.btn-accent:hover { background: #22D3EE; }
+    a.download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #2E303B;
+      color: #A78BFA;
+      padding: 8px 14px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid #3F4250;
+      transition: all 0.2s;
+    }
+    a.download-btn:hover { background: #3F4250; color: #fff; border-color: #22D3EE; }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(167, 139, 250, 0.2);
+      color: #A78BFA;
+      border: 1px solid rgba(167, 139, 250, 0.4);
+    }
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #9CA3AF;
+      margin-top: 6px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #6B7280; }
+    .dot.playing { background: #22D3EE; box-shadow: 0 0 8px #22D3EE; }
+    .dot.paused { background: #F59E0B; }
+  </style>
+</head>
+<body>
+  <h1>
+    <span>🎵 AudioFlow Verification Suite</span>
+    <span class="badge">V1.1 Engine</span>
+  </h1>
+  <p style="color: #9CA3AF; font-size: 13px;">
+    Trang này cung cấp đầy đủ các môi trường âm thanh để kiểm thử toàn diện cơ chế phát hiện tự động, cập nhật Real-time và bắt trạng thái Play/Pause.
+  </p>
+
+  <!-- 1. HTML5 MP3 Audio with Interactive Controls -->
+  <div class="card">
+    <h2>1. HTML5 Audio (Direct MP3 & Controls)</h2>
+    <p style="font-size: 12px; color: #9CA3AF;">Track mẫu Creative Commons từ Internet Archive:</p>
+    <audio id="audio-1" controls preload="metadata" title="Mozart Piano Sonata No. 16 (Allegro)">
+      <source src="https://ia800301.us.archive.org/15/items/testmp3testfile/mp3test.mp3" type="audio/mpeg">
+    </audio>
+    <div class="status-indicator">
+      <span class="dot" id="dot-1"></span>
+      <span id="status-1">Trạng thái: Sẵn sàng</span>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" id="btn-play-1">▶ Phát Audio 1</button>
+      <button class="btn" id="btn-pause-1">⏸ Tạm dừng Audio 1</button>
+      <button class="btn btn-accent" id="btn-change-source-1">🔄 Đổi sang nguồn khác (Guitar Strum)</button>
+    </div>
+  </div>
+
+  <!-- 2. HTML5 WAV Audio Element -->
+  <div class="card">
+    <h2>2. HTML5 WAV Audio Element</h2>
+    <p style="font-size: 12px; color: #9CA3AF;">Hiệu ứng âm thanh chuẩn định dạng WAV:</p>
+    <audio id="audio-2" controls preload="metadata" title="Percussion Sound Sample (WAV)">
+      <source src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" type="audio/ogg">
+    </audio>
+    <div class="status-indicator">
+      <span class="dot" id="dot-2"></span>
+      <span id="status-2">Trạng thái: Sẵn sàng</span>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" id="btn-play-2">▶ Phát WAV</button>
+      <button class="btn" id="btn-pause-2">⏸ Tạm dừng</button>
+    </div>
+  </div>
+
+  <!-- 3. HTML5 Video with Audio Track -->
+  <div class="card">
+    <h2>3. Thẻ Video MP4 có âm thanh</h2>
+    <p style="font-size: 12px; color: #9CA3AF;">Kiểm thử nhận diện video HTML5 đang phát:</p>
+    <video id="video-1" controls preload="metadata" style="max-height: 220px;" title="Sample MP4 Video Clip">
+      <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4" type="video/mp4">
+    </video>
+    <div class="status-indicator">
+      <span class="dot" id="dot-v1"></span>
+      <span id="status-v1">Trạng thái: Sẵn sàng</span>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" id="btn-play-v1">▶ Phát Video</button>
+      <button class="btn" id="btn-pause-v1">⏸ Tạm dừng Video</button>
+    </div>
+  </div>
+
+  <!-- 4. Direct Audio Download Links -->
+  <div class="card">
+    <h2>4. Các liên kết tải file âm thanh trực tiếp (Direct Links)</h2>
+    <p style="font-size: 12px; color: #9CA3AF;">Các liên kết trỏ tới file MP3, OGG, WAV công khai:</p>
+    <div class="btn-group" style="margin-top: 8px;">
+      <a class="download-btn" href="https://ia800301.us.archive.org/15/items/testmp3testfile/mp3test.mp3" download="sample_classic.mp3" title="Classic Test Track">
+        ⬇ Liên kết tải file MP3 mẫu
+      </a>
+      <a class="download-btn" href="https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg" download="speech_sample.ogg" title="Wikipedia Speech OGG">
+        ⬇ Liên kết tải file OGG mẫu
+      </a>
+      <a class="download-btn" href="https://actions.google.com/sounds/v1/ambient/ambient_hum.ogg" download="ambient_hum.ogg" title="Ambient Hum Audio">
+        ⬇ Liên kết Ambient Audio
+      </a>
+    </div>
+  </div>
+
+  <!-- 5. Dynamic Injection (MutationObserver test) -->
+  <div class="card">
+    <h2>5. Chèn Audio Động (MutationObserver Test)</h2>
+    <p style="font-size: 12px; color: #9CA3AF;">Bấm nút để chèn một phần tử audio mới vào DOM bằng JavaScript:</p>
+    <button class="btn btn-primary" id="btn-inject-dynamic">➕ Chèn Track Mới Vào DOM</button>
+    <div id="dynamic-container" style="margin-top: 14px;"></div>
+  </div>
+
+  <script>
+    // Wire up interactive buttons for testing
+    const a1 = document.getElementById('audio-1');
+    const dot1 = document.getElementById('dot-1');
+    const s1 = document.getElementById('status-1');
+
+    a1.addEventListener('play', () => { dot1.className = 'dot playing'; s1.textContent = 'Trạng thái: Đang phát (PLAYING)'; });
+    a1.addEventListener('pause', () => { dot1.className = 'dot paused'; s1.textContent = 'Trạng thái: Tạm dừng (PAUSED)'; });
+    document.getElementById('btn-play-1').addEventListener('click', () => a1.play());
+    document.getElementById('btn-pause-1').addEventListener('click', () => a1.pause());
+    document.getElementById('btn-change-source-1').addEventListener('click', () => {
+      a1.src = 'https://actions.google.com/sounds/v1/weather/light_rain.ogg';
+      a1.title = 'Light Rain Shower (OGG)';
+      a1.play();
+      alert('Đã đổi nguồn sang Light Rain Audio!');
+    });
+
+    const a2 = document.getElementById('audio-2');
+    const dot2 = document.getElementById('dot-2');
+    const s2 = document.getElementById('status-2');
+    a2.addEventListener('play', () => { dot2.className = 'dot playing'; s2.textContent = 'Trạng thái: Đang phát (PLAYING)'; });
+    a2.addEventListener('pause', () => { dot2.className = 'dot paused'; s2.textContent = 'Trạng thái: Tạm dừng (PAUSED)'; });
+    document.getElementById('btn-play-2').addEventListener('click', () => a2.play());
+    document.getElementById('btn-pause-2').addEventListener('click', () => a2.pause());
+
+    const v1 = document.getElementById('video-1');
+    const dotv1 = document.getElementById('dot-v1');
+    const sv1 = document.getElementById('status-v1');
+    v1.addEventListener('play', () => { dotv1.className = 'dot playing'; sv1.textContent = 'Trạng thái: Đang phát (PLAYING)'; });
+    v1.addEventListener('pause', () => { dotv1.className = 'dot paused'; sv1.textContent = 'Trạng thái: Tạm dừng (PAUSED)'; });
+    document.getElementById('btn-play-v1').addEventListener('click', () => v1.play());
+    document.getElementById('btn-pause-v1').addEventListener('click', () => v1.pause());
+
+    // Dynamic injection
+    document.getElementById('btn-inject-dynamic').addEventListener('click', function() {
+      const container = document.getElementById('dynamic-container');
+      const div = document.createElement('div');
+      div.className = 'track';
+      div.style.cssText = 'background: #121316; padding: 12px; border-radius: 8px; border: 1px solid #3F4250;';
+      div.innerHTML = `
+        <h4 style="margin: 0 0 8px 0; color: #22D3EE;">Dynamic Podcast Episode #404</h4>
+        <audio controls autoplay title="Dynamic Podcast Audio">
+          <source src="https://actions.google.com/sounds/v1/water/waves_crashing_on_rocks.ogg" type="audio/ogg">
+        </audio>
+      `;
+      container.appendChild(div);
+      this.textContent = '✔ Đã chèn Track mới!';
+      this.disabled = true;
+    });
+  </script>
+</body>
+</html>
