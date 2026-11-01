@@ -246,10 +246,10 @@ function inspectMediaElement(element: HTMLMediaElement) {
           src = hlsUrl;
           mediaType = 'audio';
           sourceType = 'PLAYLIST';
-          format = 'm4a';
-          streamingProtocol = 'HLS Stream (AAC)';
+          format = 'mp3';
+          streamingProtocol = 'HLS Stream (Ghép sang MP3)';
           downloadable = true;
-          downloadReason = 'Sẵn sàng tải bài hát đầy đủ (Ghép từ luồng HLS chất lượng cao)';
+          downloadReason = 'Sẵn sàng tải bài hát MP3 hoàn chỉnh';
         } else {
           mediaType = 'stream';
           sourceType = 'STREAMING_MEDIA';
@@ -412,10 +412,10 @@ function scanPerformanceResources() {
             title,
             artist,
             sourceType: 'PLAYLIST',
-            format: 'm4a',
+            format: 'mp3',
             downloadable: true,
-            downloadReason: 'Sẵn sàng tải bài hát đầy đủ (Ghép từ luồng HLS chất lượng cao)',
-            streamingProtocol: 'HLS Stream (AAC)',
+            downloadReason: 'Sẵn sàng tải bài hát MP3 hoàn chỉnh',
+            streamingProtocol: 'HLS Stream (Ghép sang MP3)',
           });
           sendMediaToBackground(item);
         }

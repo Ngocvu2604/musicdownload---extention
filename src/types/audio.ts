@@ -144,6 +144,7 @@ export interface UserSettings {
   promptFilename: boolean;
   audioNotification: boolean;
   theme: 'dark' | 'light';
+  preferredFormat: 'mp3' | 'm4a' | 'wav';
 }
 
 export type TabType = 'home' | 'downloads' | 'library' | 'settings';

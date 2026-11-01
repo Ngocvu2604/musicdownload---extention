@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   promptFilename: false,
   audioNotification: true,
   theme: 'dark',
+  preferredFormat: 'mp3',
 };
 
 const isChromeExtension = typeof chrome !== 'undefined' && !!chrome.storage?.local;

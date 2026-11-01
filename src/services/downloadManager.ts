@@ -1,8 +1,9 @@
-import { DownloadItem, DownloadStatus } from '../types/audio';
+import { DownloadItem, DownloadStatus, AudioFormat } from '../types/audio';
 import { cleanFilename, getExtensionFromUrl, getFormatFromMimeOrExt, formatSpeed } from '../utils/formatters';
 import { storageService } from '../storage/storageService';
 import { sourceValidator } from './sourceValidator';
 import { hlsDownloader } from './hlsDownloader';
+import { audioConverter } from './audioConverter';
 
 const isChromeExtension = typeof chrome !== 'undefined' && !!chrome.downloads;
 
@@ -61,9 +62,10 @@ export class DownloadManager {
     }
 
     const cleanName = cleanFilename(finalFilename);
+    const shouldPrompt = params.saveAs !== undefined ? params.saveAs : settings.promptFilename;
 
     let targetFilename = cleanName;
-    if (settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
+    if (!shouldPrompt && settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
       const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, '_');
       targetFilename = `${folder}/${cleanName}`;
     }
@@ -151,10 +153,14 @@ export class DownloadManager {
   }): Promise<number> {
     const settings = await storageService.getSettings();
     const tempDownloadId = Math.floor(Date.now() % 10000000);
+    const preferredFormat = settings.preferredFormat || 'mp3';
 
-    let cleanName = cleanFilename(params.filename, 'm4a');
+    let cleanName = cleanFilename(params.filename, preferredFormat);
+    cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${preferredFormat}`);
+
+    const shouldPrompt = params.saveAs !== undefined ? params.saveAs : settings.promptFilename;
     let targetFilename = cleanName;
-    if (settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
+    if (!shouldPrompt && settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
       const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, '_');
       targetFilename = `${folder}/${cleanName}`;
     }
@@ -165,7 +171,7 @@ export class DownloadManager {
       audioId: params.audioId,
       url: params.url,
       filename: cleanName,
-      format: 'm4a',
+      format: preferredFormat as any,
       bytesReceived: 0,
       totalBytes: 0,
       state: 'in_progress',
@@ -174,7 +180,7 @@ export class DownloadManager {
       paused: false,
       startTime: Date.now(),
       domain: params.domain || 'unknown',
-      speedFormatted: 'Đang kết nối luồng HLS...',
+      speedFormatted: 'Đang kết nối luồng phát...',
     };
 
     const currentDownloads = await storageService.getStoredDownloads();
@@ -201,24 +207,79 @@ export class DownloadManager {
         },
       });
 
-      // Synchronize format extension: .m4a vs .mp3
-      const ext = stitched.format || 'm4a';
-      if (!cleanName.endsWith(`.${ext}`)) {
-        cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${ext}`);
-        if (targetFilename.includes('/')) {
-          const folder = targetFilename.substring(0, targetFilename.lastIndexOf('/') + 1);
-          targetFilename = `${folder}${cleanName}`;
-        } else {
-          targetFilename = cleanName;
+      // Convert to user's desired format (MP3 by default)
+      let finalBlob = stitched.blob;
+      let finalFormat: AudioFormat = 'mp3';
+      let finalExt = 'mp3';
+
+      if (preferredFormat === 'wav') {
+        try {
+          const all = await storageService.getStoredDownloads();
+          const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+          if (idx >= 0) {
+            all[idx].speedFormatted = 'Đang chuyển đổi sang WAV (PCM)...';
+            await storageService.saveStoredDownloads(all);
+          }
+          finalBlob = await audioConverter.convertBlobToWav(stitched.blob);
+          finalFormat = 'wav';
+          finalExt = 'wav';
+        } catch (e) {
+          console.warn('WAV conversion fallback:', e);
         }
+      } else if (preferredFormat !== 'm4a') {
+        // MP3 conversion (DEFAULT for genuine music files!)
+        try {
+          const all = await storageService.getStoredDownloads();
+          const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+          if (idx >= 0) {
+            all[idx].speedFormatted = 'Đang mã hóa MP3 (192 kbps)...';
+            await storageService.saveStoredDownloads(all);
+          }
+          finalBlob = await audioConverter.convertBlobToMp3(stitched.blob, 192, async (percent) => {
+            const allDownloads = await storageService.getStoredDownloads();
+            const i = allDownloads.findIndex((d) => d.downloadId === tempDownloadId);
+            if (i >= 0) {
+              allDownloads[i].speedFormatted = `Đang mã hóa MP3 (${percent}%)...`;
+              await storageService.saveStoredDownloads(allDownloads);
+            }
+          });
+          finalFormat = 'mp3';
+          finalExt = 'mp3';
+        } catch (e) {
+          console.warn('MP3 conversion fallback to stitched audio:', e);
+          finalFormat = (stitched.format as any) || 'm4a';
+          finalExt = finalFormat;
+        }
+      } else {
+        finalFormat = (stitched.format as any) || 'm4a';
+        finalExt = finalFormat;
+      }
+
+      // Ensure filename matches final format extension
+      cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${finalExt}`);
+      if (!shouldPrompt && settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
+        const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, '_');
+        targetFilename = `${folder}/${cleanName}`;
+      } else {
+        targetFilename = cleanName;
       }
 
       // Convert Blob to URL for Chrome download
       let objectUrl: string;
       try {
-        objectUrl = URL.createObjectURL(stitched.blob);
+        objectUrl = URL.createObjectURL(finalBlob);
       } catch {
-        objectUrl = await this.blobToDataUrl(stitched.blob);
+        objectUrl = await this.blobToDataUrl(finalBlob);
+      }
+
+      // Pre-register final URL and filename in stored downloads for onDeterminingFilename
+      const preDownloads = await storageService.getStoredDownloads();
+      const preIdx = preDownloads.findIndex((d) => d.downloadId === tempDownloadId);
+      if (preIdx >= 0) {
+        preDownloads[preIdx].url = objectUrl;
+        preDownloads[preIdx].filename = cleanName;
+        preDownloads[preIdx].format = finalFormat;
+        await storageService.saveStoredDownloads(preDownloads);
       }
 
       if (isChromeExtension) {
@@ -226,7 +287,7 @@ export class DownloadManager {
           url: objectUrl,
           filename: targetFilename,
           conflictAction: 'uniquify',
-          saveAs: params.saveAs !== undefined ? params.saveAs : settings.promptFilename,
+          saveAs: shouldPrompt,
         });
 
         // Update stored item with final Chrome downloadId
@@ -234,12 +295,12 @@ export class DownloadManager {
         const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
         if (idx >= 0) {
           all[idx].downloadId = chromeDownloadId;
-          all[idx].bytesReceived = stitched.totalBytes;
-          all[idx].totalBytes = stitched.totalBytes;
-          all[idx].size = stitched.totalBytes;
+          all[idx].bytesReceived = finalBlob.size;
+          all[idx].totalBytes = finalBlob.size;
+          all[idx].size = finalBlob.size;
           all[idx].filename = cleanName;
-          all[idx].format = ext as any;
-          all[idx].speedFormatted = 'Hoàn tất ghép tệp';
+          all[idx].format = finalFormat;
+          all[idx].speedFormatted = 'Hoàn tất tải file nhạc';
           await storageService.saveStoredDownloads(all);
         }
 
@@ -249,8 +310,8 @@ export class DownloadManager {
           title: cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, '').replace(/[_+-]+/g, ' '),
           filename: cleanName,
           url: params.url,
-          format: ext as any,
-          size: stitched.totalBytes,
+          format: finalFormat,
+          size: finalBlob.size,
           domain: params.domain || 'unknown',
           downloadedAt: Date.now(),
           isFavorite: false,

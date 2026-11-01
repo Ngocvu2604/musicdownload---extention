@@ -10,6 +10,7 @@ import {
   Sun,
   Moon,
   Palette,
+  Music,
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -98,6 +99,69 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <Sun className="w-3.5 h-3.5" />
             <span>Light Mode</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Preferred Download Audio Format */}
+      <div className="bg-surface-light dark:bg-surface-dark border border-line-light dark:border-line-dark rounded-lg p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-content-light dark:text-content-dark font-semibold">
+            <Music className="w-3.5 h-3.5 text-brand" />
+            <span>Định dạng file nhạc tải về</span>
+          </div>
+          <span className="text-[10px] text-content-secondary font-mono font-bold uppercase text-brand">
+            {settings.preferredFormat || 'mp3'}
+          </span>
+        </div>
+        <p className="text-[10px] text-content-secondary">
+          Tự động chuyển đổi các luồng phát trực tuyến (AAC/HLS) sang định dạng nhạc bạn mong muốn.
+        </p>
+
+        <div className="grid grid-cols-3 gap-1.5 pt-1">
+          <button
+            onClick={() => {
+              onUpdateSettings({ preferredFormat: 'mp3' });
+              showSavedNotification();
+            }}
+            className={`py-2 px-1 rounded-lg text-xs font-semibold border flex flex-col items-center justify-center transition-colors ${
+              (settings.preferredFormat || 'mp3') === 'mp3'
+                ? 'bg-brand text-white border-brand'
+                : 'bg-surface-hoverLight dark:bg-surface-hoverDark text-content-secondary border-line-light dark:border-line-dark hover:text-content-light dark:hover:text-content-dark'
+            }`}
+          >
+            <span>MP3</span>
+            <span className="text-[9px] opacity-80 font-normal">Khuyên dùng</span>
+          </button>
+
+          <button
+            onClick={() => {
+              onUpdateSettings({ preferredFormat: 'm4a' });
+              showSavedNotification();
+            }}
+            className={`py-2 px-1 rounded-lg text-xs font-semibold border flex flex-col items-center justify-center transition-colors ${
+              settings.preferredFormat === 'm4a'
+                ? 'bg-brand text-white border-brand'
+                : 'bg-surface-hoverLight dark:bg-surface-hoverDark text-content-secondary border-line-light dark:border-line-dark hover:text-content-light dark:hover:text-content-dark'
+            }`}
+          >
+            <span>M4A</span>
+            <span className="text-[9px] opacity-80 font-normal">AAC gốc</span>
+          </button>
+
+          <button
+            onClick={() => {
+              onUpdateSettings({ preferredFormat: 'wav' });
+              showSavedNotification();
+            }}
+            className={`py-2 px-1 rounded-lg text-xs font-semibold border flex flex-col items-center justify-center transition-colors ${
+              settings.preferredFormat === 'wav'
+                ? 'bg-brand text-white border-brand'
+                : 'bg-surface-hoverLight dark:bg-surface-hoverDark text-content-secondary border-line-light dark:border-line-dark hover:text-content-light dark:hover:text-content-dark'
+            }`}
+          >
+            <span>WAV</span>
+            <span className="text-[9px] opacity-80 font-normal">Lossless</span>
           </button>
         </div>
       </div>

@@ -123,7 +123,7 @@ export function buildSanitizedFilename(title: string, artist?: string, ext = 'mp
 }
 
 /**
- * Sanitize filename to avoid invalid OS characters
+ * Sanitize filename to avoid invalid OS characters and ensure clean, readable song names
  */
 export function cleanFilename(name: string, fallbackExt = 'mp3'): string {
   if (!name || !name.trim()) {
@@ -144,8 +144,14 @@ export function cleanFilename(name: string, fallbackExt = 'mp3'): string {
     clean = clean.substring(clean.lastIndexOf('/') + 1);
   }
 
-  // Replace illegal filename characters
-  clean = clean.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+  // Replace pipes with a clean dash separator: "Song | Artist" -> "Song - Artist"
+  clean = clean.replace(/\s*\|\s*/g, ' - ');
+
+  // Replace illegal OS filename characters
+  clean = clean.replace(/[<>:"/\\?*\x00-\x1F]/g, '_').trim();
+
+  // Clean up multiple underscores or extra whitespace
+  clean = clean.replace(/_+/g, '_').replace(/\s+/g, ' ').trim();
 
   // If no extension, add fallback
   if (!/\.[a-zA-Z0-9]{2,5}$/.test(clean)) {

@@ -29,7 +29,9 @@
     if (clean.includes("/")) {
       clean = clean.substring(clean.lastIndexOf("/") + 1);
     }
-    clean = clean.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+    clean = clean.replace(/\s*\|\s*/g, " - ");
+    clean = clean.replace(/[<>:"/\\?*\x00-\x1F]/g, "_").trim();
+    clean = clean.replace(/_+/g, "_").replace(/\s+/g, " ").trim();
     if (!/\.[a-zA-Z0-9]{2,5}$/.test(clean)) {
       clean = `${clean}.${fallbackExt}`;
     }
@@ -239,7 +241,7 @@
         title = `${domain} Media`;
       }
     }
-    const finalExt = format !== "unknown" && format !== "hls" && format !== "dash" ? format : "m4a";
+    const finalExt = format !== "unknown" && format !== "hls" && format !== "dash" ? format : "mp3";
     const filename = buildSanitizedFilename(title, artist, finalExt);
     let downloadable = false;
     let downloadReason = "";
@@ -293,7 +295,7 @@
       pageUrl,
       mediaUrl: url,
       mediaType,
-      format: format !== "unknown" && format !== "hls" && format !== "dash" ? format : "m4a",
+      format: format !== "unknown" && format !== "hls" && format !== "dash" ? format : "mp3",
       sourceType,
       status,
       downloadStatus,
@@ -471,10 +473,10 @@
             src = hlsUrl;
             mediaType = "audio";
             sourceType = "PLAYLIST";
-            format = "m4a";
-            streamingProtocol = "HLS Stream (AAC)";
+            format = "mp3";
+            streamingProtocol = "HLS Stream (Gh\xE9p sang MP3)";
             downloadable = true;
-            downloadReason = "S\u1EB5n s\xE0ng t\u1EA3i b\xE0i h\xE1t \u0111\u1EA7y \u0111\u1EE7 (Gh\xE9p t\u1EEB lu\u1ED3ng HLS ch\u1EA5t l\u01B0\u1EE3ng cao)";
+            downloadReason = "S\u1EB5n s\xE0ng t\u1EA3i b\xE0i h\xE1t MP3 ho\xE0n ch\u1EC9nh";
           } else {
             mediaType = "stream";
             sourceType = "STREAMING_MEDIA";
@@ -600,10 +602,10 @@
               title,
               artist,
               sourceType: "PLAYLIST",
-              format: "m4a",
+              format: "mp3",
               downloadable: true,
-              downloadReason: "S\u1EB5n s\xE0ng t\u1EA3i b\xE0i h\xE1t \u0111\u1EA7y \u0111\u1EE7 (Gh\xE9p t\u1EEB lu\u1ED3ng HLS ch\u1EA5t l\u01B0\u1EE3ng cao)",
-              streamingProtocol: "HLS Stream (AAC)"
+              downloadReason: "S\u1EB5n s\xE0ng t\u1EA3i b\xE0i h\xE1t MP3 ho\xE0n ch\u1EC9nh",
+              streamingProtocol: "HLS Stream (Gh\xE9p sang MP3)"
             });
             sendMediaToBackground(item);
           }

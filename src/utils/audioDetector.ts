@@ -264,7 +264,7 @@ export function createDetectedMediaItem(params: {
   }
 
   // Build filename combining artist and title
-  const finalExt = format !== 'unknown' && format !== 'hls' && format !== 'dash' ? format : 'm4a';
+  const finalExt = format !== 'unknown' && format !== 'hls' && format !== 'dash' ? format : 'mp3';
   const filename = buildSanitizedFilename(title, artist, finalExt);
 
   // Determine downloadability & DownloadStatus
@@ -324,7 +324,7 @@ export function createDetectedMediaItem(params: {
     pageUrl,
     mediaUrl: url,
     mediaType,
-    format: format !== 'unknown' && format !== 'hls' && format !== 'dash' ? format : 'm4a',
+    format: format !== 'unknown' && format !== 'hls' && format !== 'dash' ? format : 'mp3',
     sourceType,
     status,
     downloadStatus,

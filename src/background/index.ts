@@ -114,7 +114,7 @@ chrome.webRequest.onHeadersReceived.addListener(
 
         const { title, artist } = parseTitleAndArtistFromTab(tabTitle, pageUrl);
         const format = isHlsPlaylist
-          ? 'm4a'
+          ? 'mp3'
           : getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url));
 
         const item = createDetectedMediaItem({
@@ -249,6 +249,52 @@ chrome.downloads.onChanged.addListener((delta) => {
     }
   })();
 });
+
+/**
+ * Intercept download filename determination to enforce clean song titles
+ * and prevent Chrome from defaulting to blob UUIDs (e.g. ca2314bd-2453...)
+ */
+chrome.downloads.onDeterminingFilename.addListener(
+  (
+    item: chrome.downloads.DownloadItem,
+    suggest: (suggestion?: chrome.downloads.FilenameSuggestion) => void
+  ): boolean => {
+    void (async () => {
+      try {
+        const stored = await storageService.getStoredDownloads();
+        const match = stored.find(
+          (d) =>
+            d.downloadId === item.id ||
+            d.url === item.url ||
+            (item.url.startsWith('blob:') && d.url.startsWith('blob:'))
+        );
+
+        if (match && match.filename) {
+          const settings = await storageService.getSettings();
+          let finalName = match.filename.replace(/[/\\]+/g, '_');
+          if (settings.downloadSubfolder && settings.downloadSubfolder.trim() && !settings.promptFilename) {
+            finalName = `${settings.downloadSubfolder.trim()}/${finalName}`;
+          }
+          suggest({ filename: finalName, conflictAction: 'uniquify' });
+          return;
+        }
+
+        // If filename looks like a GUID, use the most recent detected track title
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(item.filename)) {
+          if (stored.length > 0 && stored[0].filename) {
+            suggest({ filename: stored[0].filename, conflictAction: 'uniquify' });
+            return;
+          }
+        }
+
+        suggest();
+      } catch {
+        suggest();
+      }
+    })();
+    return true; // asynchronous suggestion
+  }
+);
 
 /**
  * Message dispatcher
