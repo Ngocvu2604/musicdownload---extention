@@ -11,55 +11,54 @@ export const YouTubeNotice: React.FC<YouTubeNoticeProps> = ({
   hasOfficialSource,
 }) => {
   return (
-    <div className="bg-gradient-to-br from-[#1A1B20] to-[#16171C] border border-rose-500/30 rounded-xl p-3.5 mb-3 shadow-lg relative overflow-hidden">
-      {/* Background Accent glow */}
-      <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl pointer-events-none"></div>
-
-      <div className="flex items-start gap-2.5 relative z-10">
-        <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/30">
-          <PlaySquare className="w-[18px] h-[18px]" />
+    <div className="bg-surface-light dark:bg-surface-dark border border-brand/30 rounded-lg p-3 text-xs mb-2.5">
+      <div className="flex items-start gap-2.5">
+        <div className="w-7 h-7 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0 border border-brand/20">
+          <PlaySquare className="w-4 h-4" />
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 mb-1">
-            <span className="font-semibold text-xs text-white">YouTube Detection Mode</span>
-            <span className="text-[9px] font-bold px-1.5 py-0.2 bg-rose-500/20 text-rose-300 rounded border border-rose-500/30">
+            <span className="font-semibold text-xs text-content-light dark:text-content-dark">
+              YouTube Detection
+            </span>
+            <span className="text-[9px] font-bold px-1.5 py-0.2 bg-brand/10 text-brand rounded border border-brand/20">
               Chính sách & An toàn
             </span>
           </div>
 
-          <p className="text-[11px] text-[#9CA3AF] leading-relaxed mb-2">
-            AudioFlow tuân thủ nghiêm ngặt chính sách bảo vệ bản quyền của Google & YouTube.
+          <p className="text-[11px] text-content-secondary leading-relaxed mb-2">
+            AudioFlow tuân thủ chính sách bản quyền và điều khoản của Google & YouTube.
           </p>
 
           {hasOfficialSource ? (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2 text-[11px] text-emerald-300 flex items-center gap-1.5 mb-2">
-              <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+            <div className="bg-surface-hoverLight dark:bg-surface-hoverDark border border-line-light dark:border-line-dark rounded-md p-2 text-[11px] text-content-light dark:text-content-dark flex items-center gap-1.5 mb-2">
+              <ShieldCheck className="w-4 h-4 shrink-0 text-brand" />
               <span>Phát hiện liên kết tải chính thức / podcast công khai được cấp phép!</span>
             </div>
           ) : (
-            <div className="bg-[#101114] border border-[#2E303B] rounded-lg p-2.5 text-[11px] space-y-1.5 text-[#9CA3AF]">
-              <div className="flex items-start gap-1.5 text-white">
-                <Info className="w-3.5 h-3.5 text-[#22D3EE] shrink-0 mt-0.5" />
+            <div className="bg-surface-hoverLight dark:bg-surface-hoverDark border border-line-light dark:border-line-dark rounded-md p-2 text-[11px] space-y-1 text-content-secondary">
+              <div className="flex items-start gap-1 text-content-light dark:text-content-dark">
+                <Info className="w-3.5 h-3.5 text-brand shrink-0 mt-0.5" />
                 <span className="font-medium text-xs">Phương thức tải chính thức:</span>
               </div>
-              <ul className="list-disc list-inside space-y-1 pl-1 text-[10px]">
-                <li>Sử dụng tính năng <strong>Download chính thức</strong> của YouTube (YouTube Premium).</li>
-                <li>Sử dụng các liên kết podcast / audio bản quyền công khai trong phần mô tả của tác giả.</li>
-                <li>AudioFlow không phá mã DRM hoặc trích xuất luồng stream trái phép.</li>
+              <ul className="list-disc list-inside space-y-0.5 pl-1 text-[10px]">
+                <li>Sử dụng tính năng Download chính thức của YouTube (YouTube Premium).</li>
+                <li>Sử dụng các liên kết podcast / audio bản quyền công khai của tác giả.</li>
+                <li>AudioFlow không phá mã mã hóa DRM hoặc trích xuất luồng stream trái phép.</li>
               </ul>
             </div>
           )}
 
-          <div className="mt-2.5 pt-2 border-t border-[#2E303B] flex items-center justify-between text-[10px] text-[#9CA3AF]">
-            <span>Đang xem: {pageTitle || 'YouTube Media'}</span>
+          <div className="mt-2 pt-1.5 border-t border-line-light dark:border-line-dark flex items-center justify-between text-[10px] text-content-secondary">
+            <span className="truncate max-w-[200px]">Video: {pageTitle || 'YouTube Media'}</span>
             <a
               href="https://support.google.com/youtube/answer/6141269"
               target="_blank"
               rel="noreferrer"
-              className="text-[#22D3EE] hover:underline flex items-center gap-0.5"
+              className="text-brand hover:underline flex items-center gap-0.5 shrink-0"
             >
-              <span>Xem hướng dẫn tải</span>
+              <span>Trợ giúp</span>
               <ExternalLink className="w-2.5 h-2.5" />
             </a>
           </div>

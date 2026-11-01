@@ -18,10 +18,10 @@ async function updateTabBadge(tabId: number): Promise<void> {
     if (hasPlaying) {
       // Show playing symbol if media is playing
       await chrome.action.setBadgeText({ text: '▶', tabId });
-      await chrome.action.setBadgeBackgroundColor({ color: '#22D3EE', tabId }); // Cyan for active play
+      await chrome.action.setBadgeBackgroundColor({ color: '#D62828', tabId }); // Primary Red for playing
     } else if (count > 0) {
       await chrome.action.setBadgeText({ text: count.toString(), tabId });
-      await chrome.action.setBadgeBackgroundColor({ color: '#7C3AED', tabId }); // Deep violet
+      await chrome.action.setBadgeBackgroundColor({ color: '#A61E22', tabId }); // Dark Red for detected media
     } else {
       await chrome.action.setBadgeText({ text: '', tabId });
     }

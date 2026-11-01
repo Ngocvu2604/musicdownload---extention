@@ -27,17 +27,19 @@ export const RenameModal: React.FC<RenameModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-[#1A1B20] border border-[#2E303B] rounded-2xl w-full max-w-[340px] p-4.5 shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in">
+      <div className="bg-surface-light dark:bg-surface-dark border border-line-light dark:border-line-dark rounded-xl w-full max-w-[320px] p-4">
         {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Tag className="w-4 h-4 text-[#A78BFA]" />
-            <h3 className="font-semibold text-sm text-white">Đổi tên tệp âm thanh</h3>
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-line-light dark:border-line-dark">
+          <div className="flex items-center gap-1.5">
+            <Tag className="w-4 h-4 text-brand" />
+            <h3 className="font-semibold text-xs text-content-light dark:text-content-dark">
+              Đổi tên tệp âm thanh
+            </h3>
           </div>
           <button
             onClick={onClose}
-            className="text-[#9CA3AF] hover:text-white transition-colors"
+            className="text-content-secondary hover:text-content-light dark:hover:text-content-dark transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -46,43 +48,39 @@ export const RenameModal: React.FC<RenameModalProps> = ({
         {/* Form */}
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label className="block text-xs text-[#9CA3AF] mb-1.5 font-medium">
-              Tên file lưu trên máy
+            <label className="block text-[11px] text-content-secondary mb-1 font-medium">
+              Tên file tải về
             </label>
-            <div className="flex items-center bg-[#101114] border border-[#2E303B] focus-within:border-[#A78BFA] rounded-xl px-3 py-2 transition-colors">
+            <div className="flex items-center bg-surface-hoverLight dark:bg-surface-hoverDark border border-line-light dark:border-line-dark focus-within:border-brand rounded-lg px-2.5 py-1.5 transition-colors">
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoFocus
                 placeholder="Nhập tên file..."
-                className="w-full bg-transparent text-xs text-white outline-none"
+                className="w-full bg-transparent text-xs text-content-light dark:text-content-dark outline-none font-mono"
               />
-              <span className="text-xs font-mono text-[#A78BFA] font-medium shrink-0 ml-1">
+              <span className="text-[11px] text-content-secondary font-mono pl-1">
                 .{ext}
               </span>
             </div>
-            <p className="text-[10px] text-[#9CA3AF] mt-1.5">
-              File sẽ được lưu với định dạng .{ext} chuẩn.
-            </p>
           </div>
 
-          {/* Action buttons */}
+          {/* Action Buttons */}
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 text-xs font-medium text-[#9CA3AF] hover:text-white rounded-lg hover:bg-[#2E303B] transition-colors"
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-content-secondary hover:text-content-light dark:hover:text-content-dark bg-surface-hoverLight dark:bg-surface-hoverDark border border-line-light dark:border-line-dark transition-colors"
             >
-              Hủy bỏ
+              Hủy
             </button>
             <button
               type="submit"
-              disabled={!name.trim()}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] hover:opacity-90 text-white transition-all disabled:opacity-50"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand hover:bg-brand-dark text-white transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Tải xuống ngay</span>
+              <span>Xác nhận & Tải</span>
             </button>
           </div>
         </form>
@@ -90,4 +88,3 @@ export const RenameModal: React.FC<RenameModalProps> = ({
     </div>
   );
 };
-

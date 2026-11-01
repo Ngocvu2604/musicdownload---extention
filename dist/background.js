@@ -922,10 +922,10 @@ async function updateTabBadge(tabId) {
     const hasPlaying = items.some((i) => i.status === "PLAYING");
     if (hasPlaying) {
       await chrome.action.setBadgeText({ text: "\u25B6", tabId });
-      await chrome.action.setBadgeBackgroundColor({ color: "#22D3EE", tabId });
+      await chrome.action.setBadgeBackgroundColor({ color: "#D62828", tabId });
     } else if (count > 0) {
       await chrome.action.setBadgeText({ text: count.toString(), tabId });
-      await chrome.action.setBadgeBackgroundColor({ color: "#7C3AED", tabId });
+      await chrome.action.setBadgeBackgroundColor({ color: "#A61E22", tabId });
     } else {
       await chrome.action.setBadgeText({ text: "", tabId });
     }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { RotateCw, Globe, Trash2 } from 'lucide-react';
+import { RotateCw, Globe, Trash2, Sun, Moon, Volume2 } from 'lucide-react';
 
 interface HeaderProps {
   domain: string;
@@ -8,6 +8,8 @@ interface HeaderProps {
   onScanAgain: () => void;
   onClear: () => void;
   activeTab: string;
+  theme: 'dark' | 'light';
+  onToggleTheme: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,48 +19,60 @@ export const Header: React.FC<HeaderProps> = ({
   onScanAgain,
   onClear,
   activeTab,
+  theme,
+  onToggleTheme,
 }) => {
   return (
-    <header className="px-4 py-3 bg-[#101114]/90 backdrop-blur-md border-b border-[#2E303B] flex items-center justify-between select-none z-20">
+    <header className="px-4 py-2.5 bg-bg-light dark:bg-bg-dark border-b border-line-light dark:border-line-dark flex items-center justify-between select-none z-20 shrink-0">
       {/* Brand & Active Site */}
       <div className="flex items-center gap-2.5 min-w-0">
-        <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-[#7C3AED] to-[#22D3EE] p-[1.5px] shadow-sm">
-          <div className="w-full h-full bg-[#1A1B20] rounded-[7px] flex items-center justify-center gap-[2px]">
-            <span className="w-[3px] h-3 bg-[#A78BFA] rounded-full animate-pulse"></span>
-            <span className="w-[3px] h-[18px] bg-[#22D3EE] rounded-full"></span>
-            <span className="w-[3px] h-2.5 bg-[#A78BFA] rounded-full animate-pulse"></span>
-          </div>
+        {/* Red Minimalist Logo Icon */}
+        <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center shrink-0">
+          <Volume2 className="w-4 h-4 text-white" />
         </div>
 
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-sm tracking-tight text-white">AudioFlow</span>
-            <span className="text-[10px] px-1.5 py-0.2 font-medium bg-[#7C3AED]/20 text-[#A78BFA] border border-[#7C3AED]/30 rounded">
-              v1.0
+            <span className="font-bold text-sm tracking-tight text-content-light dark:text-content-dark">
+              AudioFlow
+            </span>
+            <span className="text-[10px] font-semibold px-1 py-0.2 rounded bg-brand/10 text-brand dark:bg-brand/20 dark:text-brand-light">
+              v2.0
             </span>
           </div>
-          <div className="flex items-center gap-1 text-[11px] text-[#9CA3AF] truncate max-w-[170px]" title={domain}>
-            <Globe className="w-3 h-3 text-[#22D3EE] shrink-0" />
+
+          <div
+            className="flex items-center gap-1 text-[11px] text-content-secondary truncate max-w-[150px]"
+            title={domain}
+          >
+            <Globe className="w-3 h-3 shrink-0" />
             <span className="truncate">{domain || 'Đang chờ trang...'}</span>
           </div>
         </div>
       </div>
 
       {/* Right Actions */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
+        {/* Quick Theme Toggle */}
+        <button
+          onClick={onToggleTheme}
+          title={theme === 'dark' ? 'Chuyển sang giao diện Sáng' : 'Chuyển sang giao diện Tối'}
+          className="p-1.5 rounded-lg text-content-secondary hover:text-content-light dark:hover:text-content-dark hover:bg-surface-light dark:hover:bg-surface-dark transition-colors"
+        >
+          {theme === 'dark' ? (
+            <Sun className="w-3.5 h-3.5 text-amber-400" />
+          ) : (
+            <Moon className="w-3.5 h-3.5 text-content-secondary" />
+          )}
+        </button>
+
         {activeTab === 'home' && (
           <>
             {count > 0 && (
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#7C3AED]/20 text-[#A78BFA] border border-[#7C3AED]/40">
-                {count} {count === 1 ? 'audio' : 'audios'}
-              </span>
-            )}
-
-            {count > 0 && (
               <button
                 onClick={onClear}
-                title="Xóa danh sách trang này"
-                className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-rose-400 hover:bg-[#1A1B20] transition-colors"
+                title="Xóa danh sách media trên trang này"
+                className="p-1.5 rounded-lg text-content-secondary hover:text-brand hover:bg-surface-light dark:hover:bg-surface-dark transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -67,10 +81,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onScanAgain}
               disabled={isScanning}
-              title="Quét lại trang (Scan Again)"
-              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-[#1A1B20] hover:bg-[#262830] text-white border border-[#2E303B] hover:border-[#A78BFA]/50 transition-all active:scale-95 disabled:opacity-50"
+              title="Quét lại tab hiện tại"
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-surface-light dark:bg-surface-dark hover:bg-surface-hoverLight dark:hover:bg-surface-hoverDark text-content-light dark:text-content-dark border border-line-light dark:border-line-dark transition-colors disabled:opacity-50"
             >
-              <RotateCw className={`w-3.5 h-3.5 text-[#22D3EE] ${isScanning ? 'animate-spin' : ''}`} />
+              <RotateCw className={`w-3 h-3 text-brand ${isScanning ? 'animate-spin' : ''}`} />
               <span>Quét</span>
             </button>
           </>

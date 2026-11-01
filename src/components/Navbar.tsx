@@ -27,7 +27,6 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Đang tải',
       icon: ArrowDownToLine,
       badge: activeDownloadsCount > 0 ? activeDownloadsCount : null,
-      pulseBadge: activeDownloadsCount > 0,
     },
     {
       id: 'library' as TabType,
@@ -44,7 +43,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   ];
 
   return (
-    <nav className="h-14 bg-[#101114]/95 backdrop-blur-md border-t border-[#2E303B] px-3 flex items-center justify-around z-20 shrink-0">
+    <nav className="h-13 bg-bg-light dark:bg-bg-dark border-t border-line-light dark:border-line-dark px-2 flex items-center justify-around select-none z-20 shrink-0">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeTab === tab.id;
@@ -53,41 +52,32 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             key={tab.id}
             onClick={() => onChangeTab(tab.id)}
-            className={`relative flex flex-col items-center justify-center py-1 px-3 rounded-lg transition-all duration-200 group ${
+            className={`relative flex-1 flex flex-col items-center justify-center py-1.5 transition-colors group ${
               isActive
-                ? 'text-[#A78BFA]'
-                : 'text-[#9CA3AF] hover:text-white hover:bg-[#1A1B20]/60'
+                ? 'text-brand font-semibold'
+                : 'text-content-secondary hover:text-content-light dark:hover:text-content-dark'
             }`}
           >
             <div className="relative">
               <Icon
-                className={`w-[18px] h-[18px] transition-transform duration-200 ${
-                  isActive ? 'scale-110 text-[#A78BFA]' : 'group-hover:scale-105'
+                className={`w-4 h-4 transition-transform ${
+                  isActive ? 'scale-105 text-brand' : ''
                 }`}
               />
               {tab.badge !== null && (
-                <span
-                  className={`absolute -top-1.5 -right-2.5 min-w-[15px] h-[15px] px-1 flex items-center justify-center text-[9px] font-bold rounded-full ${
-                    tab.pulseBadge
-                      ? 'bg-[#22D3EE] text-black animate-pulse'
-                      : 'bg-[#7C3AED] text-white'
-                  }`}
-                >
+                <span className="absolute -top-1.5 -right-2.5 min-w-[15px] h-[15px] px-1 flex items-center justify-center text-[9px] font-bold rounded-full bg-brand text-white">
                   {tab.badge}
                 </span>
               )}
             </div>
-            <span
-              className={`text-[10px] mt-1 font-medium transition-colors ${
-                isActive ? 'text-white font-semibold' : 'text-[#9CA3AF]'
-              }`}
-            >
+
+            <span className="text-[10px] mt-1 tracking-tight">
               {tab.label}
             </span>
 
-            {/* Active underline indicator */}
+            {/* Flat Red Active Indicator */}
             {isActive && (
-              <span className="absolute bottom-0 w-6 h-[2px] bg-[#A78BFA] rounded-full shadow-[0_0_8px_#A78BFA]"></span>
+              <span className="absolute top-0 w-8 h-[2px] bg-brand rounded-full"></span>
             )}
           </button>
         );

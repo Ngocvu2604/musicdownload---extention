@@ -17,7 +17,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
   const [hasError, setHasError] = useState<boolean>(false);
 
   useEffect(() => {
-    // When URL changes, reset player
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
@@ -84,7 +83,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
   };
 
   return (
-    <div className="bg-[#1A1B20] border-t border-[#2E303B] px-3.5 py-2 shadow-2xl animate-slide-up z-30">
+    <div className="bg-surface-light dark:bg-surface-dark border-t border-line-light dark:border-line-dark px-3.5 py-2 animate-slide-up z-30 shrink-0">
       <audio
         ref={audioRef}
         src={url}
@@ -98,29 +97,29 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
       {/* Title & Close */}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 truncate">
-          <span className="w-2 h-2 rounded-full bg-[#22D3EE] animate-pulse"></span>
-          <span className="text-xs font-medium text-white truncate max-w-[280px]">
+          <span className="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
+          <span className="text-xs font-medium text-content-light dark:text-content-dark truncate max-w-[280px]">
             {title}
           </span>
         </div>
         <button
           onClick={onClose}
-          className="text-[#9CA3AF] hover:text-white p-1 rounded transition-colors"
+          className="text-content-secondary hover:text-content-light dark:hover:text-content-dark p-1 rounded transition-colors"
         >
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
 
       {hasError ? (
-        <div className="flex items-center gap-1.5 text-[11px] text-amber-400 py-1">
+        <div className="flex items-center gap-1.5 text-[11px] text-brand py-1">
           <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span>Không thể phát trước luồng này (có thể do CORS). Bạn vẫn có thể tải về!</span>
+          <span>Không thể nghe thử luồng này (do bảo vệ CORS). Bạn vẫn có thể tải về!</span>
         </div>
       ) : (
         <>
           {/* Progress Bar */}
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] text-[#9CA3AF] font-mono min-w-[28px]">
+            <span className="text-[10px] text-content-secondary font-mono min-w-[28px]">
               {formatDuration(currentTime)}
             </span>
 
@@ -131,10 +130,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
               value={currentTime}
               onChange={handleSeek}
               disabled={duration === 0}
-              className="w-full h-1 bg-[#2E303B] rounded-lg appearance-none cursor-pointer"
+              className="w-full h-1 bg-surface-hoverLight dark:bg-surface-hoverDark rounded-lg appearance-none cursor-pointer"
             />
 
-            <span className="text-[10px] text-[#9CA3AF] font-mono min-w-[28px] text-right">
+            <span className="text-[10px] text-content-secondary font-mono min-w-[28px] text-right">
               {formatDuration(duration)}
             </span>
           </div>
@@ -143,11 +142,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
           <div className="flex items-center justify-between px-1">
             <button
               onClick={toggleMute}
-              className="text-[#9CA3AF] hover:text-white transition-colors"
+              className="text-content-secondary hover:text-content-light dark:hover:text-content-dark transition-colors"
               title={isMuted ? 'Bật âm lượng' : 'Tắt tiếng'}
             >
               {isMuted ? (
-                <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                <VolumeX className="w-3.5 h-3.5 text-brand" />
               ) : (
                 <Volume2 className="w-3.5 h-3.5" />
               )}
@@ -155,7 +154,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
 
             <button
               onClick={togglePlay}
-              className="w-7 h-7 rounded-full bg-[#A78BFA] hover:bg-[#9065f8] text-black flex items-center justify-center transition-all shadow-md active:scale-95"
+              className="w-7 h-7 rounded-full bg-brand hover:bg-brand-dark text-white flex items-center justify-center transition-colors active:scale-95"
             >
               {isPlaying ? (
                 <Pause className="w-3.5 h-3.5 fill-current" />
@@ -171,4 +170,3 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
     </div>
   );
 };
-

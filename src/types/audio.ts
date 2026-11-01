@@ -143,7 +143,7 @@ export interface UserSettings {
   downloadSubfolder: string;
   promptFilename: boolean;
   audioNotification: boolean;
-  theme: 'dark';
+  theme: 'dark' | 'light';
 }
 
 export type TabType = 'home' | 'downloads' | 'library' | 'settings';

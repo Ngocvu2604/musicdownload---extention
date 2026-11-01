@@ -3,56 +3,66 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  --color-brand: #D62828;
+  --color-brand-dark: #A61E22;
+  --color-brand-light: #FCE8E8;
+  --color-bg-light: #FFFFFF;
+  --color-bg-dark: #181818;
+  --color-surface-light: #F5F5F5;
+  --color-surface-dark: #242424;
+  --color-text-light: #202020;
+  --color-text-dark: #F5F5F5;
+  --color-text-secondary: #888888;
+  --color-divider-light: #E5E5E5;
+  --color-divider-dark: #333333;
 }
 
 body {
-  width: 400px;
-  height: 560px;
+  width: 390px;
+  height: 570px;
   margin: 0;
   padding: 0;
-  background-color: #101114;
-  color: #FFFFFF;
   overflow: hidden;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom Sleek Scrollbar */
+/* Minimal Flat Scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(16, 17, 20, 0.6);
+  background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #2E303B;
-  border-radius: 9999px;
+.dark ::-webkit-scrollbar-thumb {
+  background: #333333;
+  border-radius: 4px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #A78BFA;
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #D62828;
 }
 
-/* Glassmorphism utility */
-.glass-panel {
-  background: rgba(26, 27, 32, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+.light ::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 4px;
 }
 
-.glow-primary {
-  box-shadow: 0 0 15px -3px rgba(167, 139, 250, 0.3);
+.light ::-webkit-scrollbar-thumb:hover {
+  background: #D62828;
 }
 
-.glow-accent {
-  box-shadow: 0 0 15px -3px rgba(34, 211, 238, 0.3);
-}
-
-/* Range input styling */
+/* Range input styling with red accent */
 input[type="range"] {
-  accent-color: #A78BFA;
+  accent-color: #D62828;
 }
 
+/* Focus outline standardized */
+:focus-visible {
+  outline: 2px solid #D62828;
+  outline-offset: 1px;
+}

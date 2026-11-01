@@ -362,6 +362,21 @@ export const App: React.FC = () => {
     setSettings(updated);
   };
 
+  const handleToggleTheme = () => {
+    const newTheme = settings.theme === 'light' ? 'dark' : 'light';
+    handleUpdateSettings({ theme: newTheme });
+  };
+
+  useEffect(() => {
+    if (settings.theme === 'light') {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+    } else {
+      document.documentElement.classList.remove('light');
+      document.documentElement.classList.add('dark');
+    }
+  }, [settings.theme]);
+
   const handleClearStorage = async () => {
     if (confirm('Xóa bộ nhớ đệm và thiết lập lại cài đặt mặc định?')) {
       if (typeof chrome !== 'undefined' && chrome.storage?.local) {
@@ -380,7 +395,13 @@ export const App: React.FC = () => {
   const playingCount = detectedItems.filter((i) => i.status === 'PLAYING').length;
 
   return (
-    <div className="flex flex-col w-[400px] h-[560px] bg-[#101114] text-white select-none overflow-hidden relative">
+    <div
+      className={`flex flex-col w-[390px] h-[570px] select-none overflow-hidden relative transition-colors ${
+        settings.theme === 'light'
+          ? 'light bg-bg-light text-content-light'
+          : 'dark bg-bg-dark text-content-dark'
+      }`}
+    >
       {/* Top Header */}
       <Header
         domain={currentDomain}
@@ -389,11 +410,13 @@ export const App: React.FC = () => {
         onScanAgain={handleScanAgain}
         onClear={handleClearCurrentTab}
         activeTab={activeTab}
+        theme={settings.theme || 'dark'}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Real-time Scan Toast feedback */}
       {scanToast && (
-        <div className="bg-[#22D3EE]/20 border-b border-[#22D3EE]/30 px-3 py-1.5 flex items-center gap-1.5 text-xs text-[#22D3EE] animate-fade-in z-20">
+        <div className="bg-brand/10 border-b border-brand/20 px-3 py-1.5 flex items-center gap-1.5 text-xs text-brand animate-fade-in z-20 shrink-0">
           <CheckCircle className="w-3.5 h-3.5 shrink-0" />
           <span className="font-medium truncate">{scanToast}</span>
         </div>
@@ -403,7 +426,7 @@ export const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto min-h-0 relative">
         {/* TAB 1: HOME (DETECTION) */}
         {activeTab === 'home' && (
-          <div className="p-3.5 space-y-3 animate-fade-in">
+          <div className="p-3.5 space-y-2.5 animate-fade-in">
             {/* YouTube Notice Card */}
             {isYouTube && (
               <YouTubeNotice
@@ -414,11 +437,11 @@ export const App: React.FC = () => {
 
             {/* Currently Playing Status Summary Bar */}
             {detectedItems.length > 0 && (
-              <div className="flex items-center justify-between px-1 text-[11px] text-[#9CA3AF]">
+              <div className="flex items-center justify-between px-1 text-[11px] text-content-secondary">
                 <div className="flex items-center gap-1.5">
                   {playingCount > 0 ? (
-                    <span className="flex items-center gap-1 text-[#22D3EE] font-semibold">
-                      <span className="w-2 h-2 rounded-full bg-[#22D3EE] animate-ping"></span>
+                    <span className="flex items-center gap-1.5 text-brand font-semibold">
+                      <span className="w-2 h-2 rounded-full bg-brand"></span>
                       <span>{playingCount} nguồn đang phát</span>
                     </span>
                   ) : (
@@ -435,15 +458,15 @@ export const App: React.FC = () => {
 
             {/* Batch Action Toolbar (if downloadable items available) */}
             {downloadableItems.length > 0 && (
-              <div className="bg-[#1A1B20] border border-[#2E303B] rounded-xl px-3 py-2 flex items-center justify-between text-xs">
+              <div className="bg-surface-light dark:bg-surface-dark border border-line-light dark:border-line-dark rounded-lg px-3 py-2 flex items-center justify-between text-xs">
                 <button
                   onClick={handleToggleSelectAll}
-                  className="flex items-center gap-1.5 text-[#9CA3AF] hover:text-white transition-colors"
+                  className="flex items-center gap-1.5 text-content-secondary hover:text-content-light dark:hover:text-content-dark transition-colors"
                 >
                   {selectedIds.size === downloadableItems.length && downloadableItems.length > 0 ? (
-                    <CheckSquare className="w-3.5 h-3.5 text-[#A78BFA]" />
+                    <CheckSquare className="w-4 h-4 text-brand" />
                   ) : (
-                    <Square className="w-3.5 h-3.5" />
+                    <Square className="w-4 h-4" />
                   )}
                   <span>
                     Chọn tất cả ({selectedIds.size}/{downloadableItems.length})
@@ -453,7 +476,7 @@ export const App: React.FC = () => {
                 {selectedIds.size > 0 && (
                   <button
                     onClick={handleBatchDownload}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] text-white font-semibold text-[11px] shadow-sm hover:opacity-90 active:scale-95 transition-all"
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-brand hover:bg-brand-dark text-white font-semibold text-xs transition-colors active:scale-95"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Tải {selectedIds.size} file</span>
