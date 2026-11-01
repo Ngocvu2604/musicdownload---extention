@@ -173,8 +173,13 @@ function inspectMediaElement(element: HTMLMediaElement) {
 
   // Check child source tags if src is empty
   if (!src) {
-    const sourceEl = element.querySelector('source');
-    if (sourceEl) src = sourceEl.src;
+    const sources = element.querySelectorAll('source');
+    for (const s of Array.from(sources)) {
+      if (s.src) {
+        src = s.src;
+        break;
+      }
+    }
   }
 
   const { title, artist } = extractMediaMetadata(element);
@@ -190,6 +195,9 @@ function inspectMediaElement(element: HTMLMediaElement) {
   let downloadable = false;
   let downloadReason = '';
   let format: AudioFormat = getFormatFromMimeOrExt(undefined, getExtensionFromUrl(src));
+  if (isVideo && (format === 'unknown' || !format)) {
+    format = 'mp4';
+  }
   let streamingProtocol: string | undefined = undefined;
 
   if (isYouTube) {
@@ -259,25 +267,28 @@ function inspectMediaElement(element: HTMLMediaElement) {
         }
       }
     }
-  } else if (src && isDirectAudioUrl(src)) {
+  } else if (src && (isDirectAudioUrl(src) || src.toLowerCase().includes('.mp4') || src.toLowerCase().includes('.webm'))) {
     downloadable = true;
     sourceType = 'DIRECT_FILE';
-    downloadReason = 'File âm thanh trực tiếp sẵn sàng tải về';
+    downloadReason = isVideo ? 'File video MP4 sẵn sàng tải về' : 'File âm thanh trực tiếp sẵn sàng tải về';
   } else if (src && src.startsWith('blob:')) {
     sourceType = 'BLOB_MEDIA';
-    streamingProtocol = 'Blob MediaSource';
+    streamingProtocol = isVideo ? 'Blob Video Stream' : 'Blob MediaSource';
     downloadable = false;
-    downloadReason = 'Nguồn phát trực tuyến qua Blob URL, không có file tải trực tiếp';
+    downloadReason = isVideo
+      ? 'Nguồn video phát trực tuyến qua Blob'
+      : 'Nguồn phát trực tuyến qua Blob URL, không có file tải trực tiếp';
   } else if (src && src.startsWith('http')) {
-    downloadable = isDirectAudioUrl(src);
+    const isDirect = isDirectAudioUrl(src) || src.toLowerCase().includes('.mp4') || src.toLowerCase().includes('.webm');
+    downloadable = isDirect;
     sourceType = downloadable ? 'DIRECT_FILE' : 'STREAMING_MEDIA';
     downloadReason = downloadable
-      ? 'File âm thanh trực tiếp sẵn sàng tải về'
-      : 'Đang phát trực tuyến trên website';
+      ? (isVideo ? 'File video MP4 sẵn sàng tải về' : 'File âm thanh trực tiếp sẵn sàng tải về')
+      : (isVideo ? 'Đang phát video trực tuyến trên website' : 'Đang phát trực tuyến trên website');
   } else {
     downloadable = false;
     sourceType = 'UNKNOWN';
-    downloadReason = 'Đang phát âm thanh trên trang';
+    downloadReason = isVideo ? 'Đang phát video trên trang' : 'Đang phát âm thanh trên trang';
   }
 
   const mediaItem = createDetectedMediaItem({
@@ -387,18 +398,23 @@ function scanPerformanceResources() {
       const sourceType = determineSourceType(name);
       const { title, artist } = extractMediaMetadata(document.body);
 
-      if (sourceType === 'DIRECT_FILE' && isDirectAudioUrl(name)) {
+      const isVid = lowerName.includes('.mp4') || lowerName.includes('.webm');
+      if (sourceType === 'DIRECT_FILE' && (isDirectAudioUrl(name) || isVid)) {
         if (!mediaRegistry.has(name)) {
           const item = createDetectedMediaItem({
             url: name,
-            source: 'performance-resource',
+            source: isVid ? 'dom-video' : 'performance-resource',
             pageUrl: window.location.href,
             tabId: 0,
             title,
             artist,
+            mediaType: isVid ? 'video' : 'audio',
+            format: isVid ? 'mp4' : undefined,
             sourceType: 'DIRECT_FILE',
             downloadable: true,
-            downloadReason: 'Tài nguyên âm thanh trực tiếp phát hiện qua mạng',
+            downloadReason: isVid
+              ? 'File video MP4 trực tiếp phát hiện qua mạng'
+              : 'Tài nguyên âm thanh trực tiếp phát hiện qua mạng',
           });
           sendMediaToBackground(item);
         }
@@ -439,16 +455,21 @@ function scanDownloadLinks() {
     if (href && href.startsWith('http') && !href.startsWith('javascript:')) {
       if (isDirectAudioUrl(href) || (link.classList.contains('sc-button-download') && !href.includes('javascript:'))) {
         const { title, artist } = extractMediaMetadata(link as HTMLElement);
+        const isVid = href.toLowerCase().includes('.mp4') || href.toLowerCase().includes('.webm');
         const item = createDetectedMediaItem({
           url: href,
-          source: 'dom-link',
+          source: isVid ? 'dom-video' : 'dom-link',
           pageUrl: window.location.href,
           tabId: 0,
           title,
           artist,
+          mediaType: isVid ? 'video' : 'audio',
+          format: isVid ? 'mp4' : undefined,
           sourceType: 'DIRECT_FILE',
           downloadable: true,
-          downloadReason: 'Liên kết tải âm thanh trực tiếp (MP3/WAV) trên website',
+          downloadReason: isVid
+            ? 'File video MP4 sẵn sàng tải về'
+            : 'Liên kết tải âm thanh trực tiếp (MP3/WAV) trên website',
         });
         sendMediaToBackground(item);
       }

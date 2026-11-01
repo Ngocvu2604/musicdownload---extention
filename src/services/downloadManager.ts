@@ -12,7 +12,7 @@ const speedTracker = new Map<number, { lastBytes: number; lastTime: number }>();
 
 export class DownloadManager {
   /**
-   * Start downloading an audio item with smart pre-validation
+   * Start downloading an audio/video item with smart pre-validation
    */
   async startDownload(params: {
     url: string;
@@ -22,6 +22,8 @@ export class DownloadManager {
     size?: number;
     saveAs?: boolean;
     skipValidation?: boolean;
+    targetFormat?: 'mp3' | 'm4a' | 'wav' | 'mp4';
+    explicitFormatSelection?: boolean;
   }): Promise<number> {
     const isHls =
       params.url.toLowerCase().includes('.m3u8') ||
@@ -32,6 +34,7 @@ export class DownloadManager {
     }
 
     const settings = await storageService.getSettings();
+    const chosenFormat = params.targetFormat;
 
     // 1. Smart Source Pre-validation (unless explicitly skipped for verified retry)
     let finalFilename = params.filename;
@@ -52,7 +55,7 @@ export class DownloadManager {
       }
 
       // Synchronize format extension: If server returns M4A/AAC/MP3, ensure filename extension matches!
-      if (validation.suggestedFormat && validation.suggestedFormat !== 'unknown') {
+      if (!chosenFormat && validation.suggestedFormat && validation.suggestedFormat !== 'unknown') {
         const trueFormat = validation.suggestedFormat;
         const currentExt = getExtensionFromUrl(finalFilename);
         if (currentExt && currentExt !== trueFormat) {
@@ -61,9 +64,88 @@ export class DownloadManager {
       }
     }
 
-    const cleanName = cleanFilename(finalFilename);
+    const currentExt = getExtensionFromUrl(finalFilename) || getExtensionFromUrl(params.url);
+    const isVideo = params.url.toLowerCase().includes('.mp4') || currentExt === 'mp4' || chosenFormat === 'mp4';
+    const effectiveExt = chosenFormat || (isVideo ? 'mp4' : (currentExt || 'mp3'));
+
     const shouldPrompt = params.saveAs !== undefined ? params.saveAs : settings.promptFilename;
-    const subfolder = (settings.downloadSubfolder || '').trim().replace(/[<>:"/\\|?*]/g, '_');
+    const subfolder = (settings.downloadSubfolder || 'music').trim().replace(/[<>:"/\\|?*]/g, '_');
+
+    // If format conversion is explicitly requested (e.g., MP3 or WAV from a different source format)
+    if (params.explicitFormatSelection && chosenFormat && (chosenFormat === 'mp3' || chosenFormat === 'wav') && currentExt && currentExt !== chosenFormat) {
+      try {
+        const resp = await fetch(params.url);
+        if (resp.ok) {
+          const rawBlob = await resp.blob();
+          let convertedBlob: Blob;
+          if (chosenFormat === 'wav') {
+            convertedBlob = await audioConverter.convertBlobToWav(rawBlob);
+          } else {
+            convertedBlob = await audioConverter.convertBlobToMp3(rawBlob, 192);
+          }
+
+          let objectUrl: string;
+          try {
+            objectUrl = URL.createObjectURL(convertedBlob);
+          } catch {
+            objectUrl = await this.blobToDataUrl(convertedBlob);
+          }
+
+          const baseTitle = finalFilename.replace(/\.[a-zA-Z0-9]{2,5}$/, '');
+          const cleanName = cleanFilename(`${baseTitle}.${chosenFormat}`, chosenFormat);
+          const targetFilename = subfolder ? `${subfolder}/${cleanName}` : cleanName;
+
+          if (isChromeExtension) {
+            try {
+              await chrome.runtime.sendMessage({
+                type: 'REGISTER_PENDING_DOWNLOAD',
+                payload: {
+                  url: objectUrl,
+                  filename: cleanName,
+                  subfolder,
+                },
+              });
+            } catch {}
+
+            const downloadId = await chrome.downloads.download({
+              url: objectUrl,
+              filename: targetFilename,
+              conflictAction: 'uniquify',
+              saveAs: shouldPrompt,
+            });
+
+            const newDownload: DownloadItem = {
+              downloadId,
+              audioId: params.audioId,
+              url: objectUrl,
+              filename: cleanName,
+              format: chosenFormat as any,
+              size: convertedBlob.size,
+              bytesReceived: convertedBlob.size,
+              totalBytes: convertedBlob.size,
+              state: 'in_progress',
+              downloadStatus: 'DOWNLOADING',
+              canResume: false,
+              paused: false,
+              startTime: Date.now(),
+              domain: params.domain || 'unknown',
+              retryCount: 0,
+            };
+
+            const current = await storageService.getStoredDownloads();
+            current.unshift(newDownload);
+            await storageService.saveStoredDownloads(current.slice(0, 50));
+
+            return downloadId;
+          }
+        }
+      } catch {
+        // Silently fall back to native direct download without logging to extension console
+      }
+    }
+
+    const baseTitle = finalFilename.replace(/\.[a-zA-Z0-9]{2,5}$/, '');
+    const cleanName = cleanFilename(`${baseTitle}.${effectiveExt}`, effectiveExt);
     const targetFilename = subfolder ? `${subfolder}/${cleanName}` : cleanName;
 
     if (isChromeExtension) {
@@ -88,15 +170,12 @@ export class DownloadManager {
           saveAs: shouldPrompt,
         });
 
-        const ext = getExtensionFromUrl(cleanName);
-        const format = getFormatFromMimeOrExt(undefined, ext);
-
         const newDownload: DownloadItem = {
           downloadId,
           audioId: params.audioId,
           url: params.url,
           filename: cleanName,
-          format,
+          format: effectiveExt as any,
           size: validatedSize,
           bytesReceived: 0,
           totalBytes: validatedSize || 0,
@@ -159,10 +238,11 @@ export class DownloadManager {
     audioId?: string;
     domain?: string;
     saveAs?: boolean;
+    targetFormat?: 'mp3' | 'm4a' | 'wav' | 'mp4';
   }): Promise<number> {
     const settings = await storageService.getSettings();
     const tempDownloadId = Math.floor(Date.now() % 10000000);
-    const preferredFormat = settings.preferredFormat || 'mp3';
+    const preferredFormat = params.targetFormat || settings.preferredFormat || 'mp3';
 
     let cleanName = cleanFilename(params.filename, preferredFormat);
     cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${preferredFormat}`);
@@ -266,7 +346,7 @@ export class DownloadManager {
 
       // Ensure filename matches final format extension
       cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${finalExt}`);
-      const subfolder = (settings.downloadSubfolder || '').trim().replace(/[<>:"/\\|?*]/g, '_');
+      const subfolder = (settings.downloadSubfolder || 'music').trim().replace(/[<>:"/\\|?*]/g, '_');
       const targetFilename = subfolder ? `${subfolder}/${cleanName}` : cleanName;
 
       // Convert Blob to URL for Chrome download
@@ -451,6 +531,30 @@ export class DownloadManager {
         console.error('[AudioFlow] Failed to cancel download:', e);
       }
     }
+  }
+
+  /**
+   * Clear all completed and interrupted downloads from both Chrome history and local storage
+   */
+  async clearFinishedDownloads(): Promise<void> {
+    if (isChromeExtension) {
+      try {
+        await new Promise<void>((resolve) => {
+          chrome.downloads.erase({ state: 'complete' }, () => {
+            chrome.downloads.erase({ state: 'interrupted' }, () => {
+              resolve();
+            });
+          });
+        });
+      } catch (e) {
+        console.warn('[AudioFlow] Failed to erase Chrome downloads history:', e);
+      }
+    }
+
+    // Also clean stored downloads in local storage
+    const current = await storageService.getStoredDownloads();
+    const activeOnly = current.filter((d) => d.state === 'in_progress');
+    await storageService.saveStoredDownloads(activeOnly);
   }
 
   /**

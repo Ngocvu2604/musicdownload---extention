@@ -217,7 +217,9 @@
     } = params;
     const domain = getDomainFromUrl(pageUrl || url);
     const ext = getExtensionFromUrl(url);
-    const format = initialFormat || getFormatFromMimeOrExt(mimeType, ext);
+    const isVideo = params.mediaType === "video" || ext === "mp4" || mimeType.toLowerCase().includes("video/") || url.toLowerCase().includes(".mp4");
+    const resolvedMediaType = params.mediaType || (isVideo ? "video" : "audio");
+    const format = initialFormat || getFormatFromMimeOrExt(mimeType, ext) || (isVideo ? "mp4" : "mp3");
     const sourceType = initialSourceType || determineSourceType(url, mimeType);
     let title = (initialTitle || "").trim();
     if (!title) {
@@ -229,15 +231,15 @@
         try {
           const parsed = new URL(url);
           const segments = parsed.pathname.split("/").filter(Boolean);
-          title = segments[segments.length - 1] || "Web Audio";
+          title = segments[segments.length - 1] || (isVideo ? "Web Video" : "Web Audio");
         } catch {
-          title = "Web Audio";
+          title = isVideo ? "Web Video" : "Web Audio";
         }
       } else {
         title = `${domain} Media`;
       }
     }
-    const finalExt = format !== "unknown" && format !== "hls" && format !== "dash" ? format : "mp3";
+    const finalExt = format !== "unknown" && format !== "hls" && format !== "dash" ? format : isVideo ? "mp4" : "mp3";
     const filename = buildSanitizedFilename(title, artist, finalExt);
     let downloadable = false;
     let downloadReason = "";
@@ -290,7 +292,7 @@
       website: domain,
       pageUrl,
       mediaUrl: url,
-      mediaType,
+      mediaType: resolvedMediaType,
       format: format !== "unknown" && format !== "hls" && format !== "dash" ? format : "mp3",
       sourceType,
       status,
@@ -415,8 +417,13 @@
     const isVideo = element instanceof HTMLVideoElement;
     let src = element.currentSrc || element.src;
     if (!src) {
-      const sourceEl = element.querySelector("source");
-      if (sourceEl) src = sourceEl.src;
+      const sources = element.querySelectorAll("source");
+      for (const s of Array.from(sources)) {
+        if (s.src) {
+          src = s.src;
+          break;
+        }
+      }
     }
     const { title, artist } = extractMediaMetadata(element);
     const status = getElementPlaybackStatus(element);
@@ -429,6 +436,9 @@
     let downloadable = false;
     let downloadReason = "";
     let format = getFormatFromMimeOrExt(void 0, getExtensionFromUrl(src));
+    if (isVideo && (format === "unknown" || !format)) {
+      format = "mp4";
+    }
     let streamingProtocol = void 0;
     if (isYouTube) {
       mediaType = "stream";
@@ -482,23 +492,24 @@
           }
         }
       }
-    } else if (src && isDirectAudioUrl(src)) {
+    } else if (src && (isDirectAudioUrl(src) || src.toLowerCase().includes(".mp4") || src.toLowerCase().includes(".webm"))) {
       downloadable = true;
       sourceType = "DIRECT_FILE";
-      downloadReason = "File \xE2m thanh tr\u1EF1c ti\u1EBFp s\u1EB5n s\xE0ng t\u1EA3i v\u1EC1";
+      downloadReason = isVideo ? "File video MP4 s\u1EB5n s\xE0ng t\u1EA3i v\u1EC1" : "File \xE2m thanh tr\u1EF1c ti\u1EBFp s\u1EB5n s\xE0ng t\u1EA3i v\u1EC1";
     } else if (src && src.startsWith("blob:")) {
       sourceType = "BLOB_MEDIA";
-      streamingProtocol = "Blob MediaSource";
+      streamingProtocol = isVideo ? "Blob Video Stream" : "Blob MediaSource";
       downloadable = false;
-      downloadReason = "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn qua Blob URL, kh\xF4ng c\xF3 file t\u1EA3i tr\u1EF1c ti\u1EBFp";
+      downloadReason = isVideo ? "Ngu\u1ED3n video ph\xE1t tr\u1EF1c tuy\u1EBFn qua Blob" : "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn qua Blob URL, kh\xF4ng c\xF3 file t\u1EA3i tr\u1EF1c ti\u1EBFp";
     } else if (src && src.startsWith("http")) {
-      downloadable = isDirectAudioUrl(src);
+      const isDirect = isDirectAudioUrl(src) || src.toLowerCase().includes(".mp4") || src.toLowerCase().includes(".webm");
+      downloadable = isDirect;
       sourceType = downloadable ? "DIRECT_FILE" : "STREAMING_MEDIA";
-      downloadReason = downloadable ? "File \xE2m thanh tr\u1EF1c ti\u1EBFp s\u1EB5n s\xE0ng t\u1EA3i v\u1EC1" : "\u0110ang ph\xE1t tr\u1EF1c tuy\u1EBFn tr\xEAn website";
+      downloadReason = downloadable ? isVideo ? "File video MP4 s\u1EB5n s\xE0ng t\u1EA3i v\u1EC1" : "File \xE2m thanh tr\u1EF1c ti\u1EBFp s\u1EB5n s\xE0ng t\u1EA3i v\u1EC1" : isVideo ? "\u0110ang ph\xE1t video tr\u1EF1c tuy\u1EBFn tr\xEAn website" : "\u0110ang ph\xE1t tr\u1EF1c tuy\u1EBFn tr\xEAn website";
     } else {
       downloadable = false;
       sourceType = "UNKNOWN";
-      downloadReason = "\u0110ang ph\xE1t \xE2m thanh tr\xEAn trang";
+      downloadReason = isVideo ? "\u0110ang ph\xE1t video tr\xEAn trang" : "\u0110ang ph\xE1t \xE2m thanh tr\xEAn trang";
     }
     const mediaItem = createDetectedMediaItem({
       url: src || window.location.href,
@@ -573,18 +584,21 @@
         }
         const sourceType = determineSourceType(name);
         const { title, artist } = extractMediaMetadata(document.body);
-        if (sourceType === "DIRECT_FILE" && isDirectAudioUrl(name)) {
+        const isVid = lowerName.includes(".mp4") || lowerName.includes(".webm");
+        if (sourceType === "DIRECT_FILE" && (isDirectAudioUrl(name) || isVid)) {
           if (!mediaRegistry.has(name)) {
             const item = createDetectedMediaItem({
               url: name,
-              source: "performance-resource",
+              source: isVid ? "dom-video" : "performance-resource",
               pageUrl: window.location.href,
               tabId: 0,
               title,
               artist,
+              mediaType: isVid ? "video" : "audio",
+              format: isVid ? "mp4" : void 0,
               sourceType: "DIRECT_FILE",
               downloadable: true,
-              downloadReason: "T\xE0i nguy\xEAn \xE2m thanh tr\u1EF1c ti\u1EBFp ph\xE1t hi\u1EC7n qua m\u1EA1ng"
+              downloadReason: isVid ? "File video MP4 tr\u1EF1c ti\u1EBFp ph\xE1t hi\u1EC7n qua m\u1EA1ng" : "T\xE0i nguy\xEAn \xE2m thanh tr\u1EF1c ti\u1EBFp ph\xE1t hi\u1EC7n qua m\u1EA1ng"
             });
             sendMediaToBackground(item);
           }
@@ -619,16 +633,19 @@
       if (href && href.startsWith("http") && !href.startsWith("javascript:")) {
         if (isDirectAudioUrl(href) || link.classList.contains("sc-button-download") && !href.includes("javascript:")) {
           const { title, artist } = extractMediaMetadata(link);
+          const isVid = href.toLowerCase().includes(".mp4") || href.toLowerCase().includes(".webm");
           const item = createDetectedMediaItem({
             url: href,
-            source: "dom-link",
+            source: isVid ? "dom-video" : "dom-link",
             pageUrl: window.location.href,
             tabId: 0,
             title,
             artist,
+            mediaType: isVid ? "video" : "audio",
+            format: isVid ? "mp4" : void 0,
             sourceType: "DIRECT_FILE",
             downloadable: true,
-            downloadReason: "Li\xEAn k\u1EBFt t\u1EA3i \xE2m thanh tr\u1EF1c ti\u1EBFp (MP3/WAV) tr\xEAn website"
+            downloadReason: isVid ? "File video MP4 s\u1EB5n s\xE0ng t\u1EA3i v\u1EC1" : "Li\xEAn k\u1EBFt t\u1EA3i \xE2m thanh tr\u1EF1c ti\u1EBFp (MP3/WAV) tr\xEAn website"
           });
           sendMediaToBackground(item);
         }

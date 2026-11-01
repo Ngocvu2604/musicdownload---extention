@@ -33,9 +33,20 @@ export class AudioConverter {
 
     const audioCtx = new AudioContextClass();
     try {
+      if (audioCtx.state === 'suspended') {
+        try {
+          await audioCtx.resume();
+        } catch {}
+      }
       // Create a copy of the buffer because decodeAudioData detaches the input ArrayBuffer
       const copy = arrayBuffer.slice(0);
-      return await audioCtx.decodeAudioData(copy);
+      return await new Promise<AudioBuffer>((resolve, reject) => {
+        audioCtx.decodeAudioData(
+          copy,
+          (buf) => resolve(buf),
+          (err) => reject(err || new Error('Không thể giải mã dữ liệu âm thanh'))
+        );
+      });
     } finally {
       if (audioCtx.state !== 'closed') {
         void audioCtx.close();

@@ -240,7 +240,15 @@ export function createDetectedMediaItem(params: {
 
   const domain = getDomainFromUrl(pageUrl || url);
   const ext = getExtensionFromUrl(url);
-  const format: AudioFormat = initialFormat || getFormatFromMimeOrExt(mimeType, ext);
+  const isVideo =
+    params.mediaType === 'video' ||
+    ext === 'mp4' ||
+    mimeType.toLowerCase().includes('video/') ||
+    url.toLowerCase().includes('.mp4');
+  const resolvedMediaType: 'audio' | 'video' | 'stream' | 'unknown' =
+    params.mediaType || (isVideo ? 'video' : 'audio');
+  const format: AudioFormat =
+    initialFormat || getFormatFromMimeOrExt(mimeType, ext) || (isVideo ? 'mp4' : 'mp3');
   const sourceType: MediaSourceType = initialSourceType || determineSourceType(url, mimeType);
 
   // Derive title & filename
@@ -254,9 +262,9 @@ export function createDetectedMediaItem(params: {
       try {
         const parsed = new URL(url);
         const segments = parsed.pathname.split('/').filter(Boolean);
-        title = segments[segments.length - 1] || 'Web Audio';
+        title = segments[segments.length - 1] || (isVideo ? 'Web Video' : 'Web Audio');
       } catch {
-        title = 'Web Audio';
+        title = isVideo ? 'Web Video' : 'Web Audio';
       }
     } else {
       title = `${domain} Media`;
@@ -264,7 +272,12 @@ export function createDetectedMediaItem(params: {
   }
 
   // Build filename combining artist and title
-  const finalExt = format !== 'unknown' && format !== 'hls' && format !== 'dash' ? format : 'mp3';
+  const finalExt =
+    format !== 'unknown' && format !== 'hls' && format !== 'dash'
+      ? format
+      : isVideo
+      ? 'mp4'
+      : 'mp3';
   const filename = buildSanitizedFilename(title, artist, finalExt);
 
   // Determine downloadability & DownloadStatus
@@ -323,7 +336,7 @@ export function createDetectedMediaItem(params: {
     website: domain,
     pageUrl,
     mediaUrl: url,
-    mediaType,
+    mediaType: resolvedMediaType,
     format: format !== 'unknown' && format !== 'hls' && format !== 'dash' ? format : 'mp3',
     sourceType,
     status,

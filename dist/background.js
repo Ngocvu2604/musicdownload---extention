@@ -3,7 +3,7 @@ var DEFAULT_SETTINGS = {
   autoDetect: true,
   minFileSizeKB: 50,
   minDurationSeconds: 1,
-  downloadSubfolder: "AudioFlow",
+  downloadSubfolder: "music",
   promptFilename: false,
   audioNotification: true,
   theme: "dark",
@@ -526,7 +526,9 @@ function createDetectedMediaItem(params) {
   } = params;
   const domain = getDomainFromUrl(pageUrl || url);
   const ext = getExtensionFromUrl(url);
-  const format = initialFormat || getFormatFromMimeOrExt(mimeType, ext);
+  const isVideo = params.mediaType === "video" || ext === "mp4" || mimeType.toLowerCase().includes("video/") || url.toLowerCase().includes(".mp4");
+  const resolvedMediaType = params.mediaType || (isVideo ? "video" : "audio");
+  const format = initialFormat || getFormatFromMimeOrExt(mimeType, ext) || (isVideo ? "mp4" : "mp3");
   const sourceType = initialSourceType || determineSourceType(url, mimeType);
   let title = (initialTitle || "").trim();
   if (!title) {
@@ -538,15 +540,15 @@ function createDetectedMediaItem(params) {
       try {
         const parsed = new URL(url);
         const segments = parsed.pathname.split("/").filter(Boolean);
-        title = segments[segments.length - 1] || "Web Audio";
+        title = segments[segments.length - 1] || (isVideo ? "Web Video" : "Web Audio");
       } catch {
-        title = "Web Audio";
+        title = isVideo ? "Web Video" : "Web Audio";
       }
     } else {
       title = `${domain} Media`;
     }
   }
-  const finalExt = format !== "unknown" && format !== "hls" && format !== "dash" ? format : "mp3";
+  const finalExt = format !== "unknown" && format !== "hls" && format !== "dash" ? format : isVideo ? "mp4" : "mp3";
   const filename = buildSanitizedFilename(title, artist, finalExt);
   let downloadable = false;
   let downloadReason = "";
@@ -599,7 +601,7 @@ function createDetectedMediaItem(params) {
     website: domain,
     pageUrl,
     mediaUrl: url,
-    mediaType,
+    mediaType: resolvedMediaType,
     format: format !== "unknown" && format !== "hls" && format !== "dash" ? format : "mp3",
     sourceType,
     status,
@@ -10776,8 +10778,20 @@ var AudioConverter = class {
     }
     const audioCtx = new AudioContextClass();
     try {
+      if (audioCtx.state === "suspended") {
+        try {
+          await audioCtx.resume();
+        } catch {
+        }
+      }
       const copy = arrayBuffer.slice(0);
-      return await audioCtx.decodeAudioData(copy);
+      return await new Promise((resolve, reject) => {
+        audioCtx.decodeAudioData(
+          copy,
+          (buf) => resolve(buf),
+          (err) => reject(err || new Error("Kh\xF4ng th\u1EC3 gi\u1EA3i m\xE3 d\u1EEF li\u1EC7u \xE2m thanh"))
+        );
+      });
     } finally {
       if (audioCtx.state !== "closed") {
         void audioCtx.close();
@@ -10889,7 +10903,7 @@ var isChromeExtension2 = typeof chrome !== "undefined" && !!chrome.downloads;
 var speedTracker = /* @__PURE__ */ new Map();
 var DownloadManager = class {
   /**
-   * Start downloading an audio item with smart pre-validation
+   * Start downloading an audio/video item with smart pre-validation
    */
   async startDownload(params) {
     const isHls = params.url.toLowerCase().includes(".m3u8") || params.url.toLowerCase().includes("/playlist");
@@ -10897,6 +10911,7 @@ var DownloadManager = class {
       return await this.startHlsDownload(params);
     }
     const settings = await storageService.getSettings();
+    const chosenFormat = params.targetFormat;
     let finalFilename = params.filename;
     let validatedSize = params.size;
     if (!params.skipValidation) {
@@ -10910,17 +10925,85 @@ var DownloadManager = class {
       if (validation.contentLength) {
         validatedSize = validation.contentLength;
       }
-      if (validation.suggestedFormat && validation.suggestedFormat !== "unknown") {
+      if (!chosenFormat && validation.suggestedFormat && validation.suggestedFormat !== "unknown") {
         const trueFormat = validation.suggestedFormat;
-        const currentExt = getExtensionFromUrl(finalFilename);
-        if (currentExt && currentExt !== trueFormat) {
+        const currentExt2 = getExtensionFromUrl(finalFilename);
+        if (currentExt2 && currentExt2 !== trueFormat) {
           finalFilename = finalFilename.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${trueFormat}`);
         }
       }
     }
-    const cleanName = cleanFilename(finalFilename);
+    const currentExt = getExtensionFromUrl(finalFilename) || getExtensionFromUrl(params.url);
+    const isVideo = params.url.toLowerCase().includes(".mp4") || currentExt === "mp4" || chosenFormat === "mp4";
+    const effectiveExt = chosenFormat || (isVideo ? "mp4" : currentExt || "mp3");
     const shouldPrompt = params.saveAs !== void 0 ? params.saveAs : settings.promptFilename;
-    const subfolder = (settings.downloadSubfolder || "").trim().replace(/[<>:"/\\|?*]/g, "_");
+    const subfolder = (settings.downloadSubfolder || "music").trim().replace(/[<>:"/\\|?*]/g, "_");
+    if (params.explicitFormatSelection && chosenFormat && (chosenFormat === "mp3" || chosenFormat === "wav") && currentExt && currentExt !== chosenFormat) {
+      try {
+        const resp = await fetch(params.url);
+        if (resp.ok) {
+          const rawBlob = await resp.blob();
+          let convertedBlob;
+          if (chosenFormat === "wav") {
+            convertedBlob = await audioConverter.convertBlobToWav(rawBlob);
+          } else {
+            convertedBlob = await audioConverter.convertBlobToMp3(rawBlob, 192);
+          }
+          let objectUrl;
+          try {
+            objectUrl = URL.createObjectURL(convertedBlob);
+          } catch {
+            objectUrl = await this.blobToDataUrl(convertedBlob);
+          }
+          const baseTitle2 = finalFilename.replace(/\.[a-zA-Z0-9]{2,5}$/, "");
+          const cleanName2 = cleanFilename(`${baseTitle2}.${chosenFormat}`, chosenFormat);
+          const targetFilename2 = subfolder ? `${subfolder}/${cleanName2}` : cleanName2;
+          if (isChromeExtension2) {
+            try {
+              await chrome.runtime.sendMessage({
+                type: "REGISTER_PENDING_DOWNLOAD",
+                payload: {
+                  url: objectUrl,
+                  filename: cleanName2,
+                  subfolder
+                }
+              });
+            } catch {
+            }
+            const downloadId = await chrome.downloads.download({
+              url: objectUrl,
+              filename: targetFilename2,
+              conflictAction: "uniquify",
+              saveAs: shouldPrompt
+            });
+            const newDownload = {
+              downloadId,
+              audioId: params.audioId,
+              url: objectUrl,
+              filename: cleanName2,
+              format: chosenFormat,
+              size: convertedBlob.size,
+              bytesReceived: convertedBlob.size,
+              totalBytes: convertedBlob.size,
+              state: "in_progress",
+              downloadStatus: "DOWNLOADING",
+              canResume: false,
+              paused: false,
+              startTime: Date.now(),
+              domain: params.domain || "unknown",
+              retryCount: 0
+            };
+            const current = await storageService.getStoredDownloads();
+            current.unshift(newDownload);
+            await storageService.saveStoredDownloads(current.slice(0, 50));
+            return downloadId;
+          }
+        }
+      } catch {
+      }
+    }
+    const baseTitle = finalFilename.replace(/\.[a-zA-Z0-9]{2,5}$/, "");
+    const cleanName = cleanFilename(`${baseTitle}.${effectiveExt}`, effectiveExt);
     const targetFilename = subfolder ? `${subfolder}/${cleanName}` : cleanName;
     if (isChromeExtension2) {
       try {
@@ -10941,14 +11024,12 @@ var DownloadManager = class {
           conflictAction: "uniquify",
           saveAs: shouldPrompt
         });
-        const ext = getExtensionFromUrl(cleanName);
-        const format = getFormatFromMimeOrExt(void 0, ext);
         const newDownload = {
           downloadId,
           audioId: params.audioId,
           url: params.url,
           filename: cleanName,
-          format,
+          format: effectiveExt,
           size: validatedSize,
           bytesReceived: 0,
           totalBytes: validatedSize || 0,
@@ -11001,7 +11082,7 @@ var DownloadManager = class {
   async startHlsDownload(params) {
     const settings = await storageService.getSettings();
     const tempDownloadId = Math.floor(Date.now() % 1e7);
-    const preferredFormat = settings.preferredFormat || "mp3";
+    const preferredFormat = params.targetFormat || settings.preferredFormat || "mp3";
     let cleanName = cleanFilename(params.filename, preferredFormat);
     cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${preferredFormat}`);
     const shouldPrompt = params.saveAs !== void 0 ? params.saveAs : settings.promptFilename;
@@ -11093,7 +11174,7 @@ var DownloadManager = class {
         finalExt = finalFormat;
       }
       cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${finalExt}`);
-      const subfolder = (settings.downloadSubfolder || "").trim().replace(/[<>:"/\\|?*]/g, "_");
+      const subfolder = (settings.downloadSubfolder || "music").trim().replace(/[<>:"/\\|?*]/g, "_");
       const targetFilename2 = subfolder ? `${subfolder}/${cleanName}` : cleanName;
       let objectUrl;
       try {
@@ -11255,6 +11336,27 @@ var DownloadManager = class {
     }
   }
   /**
+   * Clear all completed and interrupted downloads from both Chrome history and local storage
+   */
+  async clearFinishedDownloads() {
+    if (isChromeExtension2) {
+      try {
+        await new Promise((resolve) => {
+          chrome.downloads.erase({ state: "complete" }, () => {
+            chrome.downloads.erase({ state: "interrupted" }, () => {
+              resolve();
+            });
+          });
+        });
+      } catch (e) {
+        console.warn("[AudioFlow] Failed to erase Chrome downloads history:", e);
+      }
+    }
+    const current = await storageService.getStoredDownloads();
+    const activeOnly = current.filter((d) => d.state === "in_progress");
+    await storageService.saveStoredDownloads(activeOnly);
+  }
+  /**
    * Open the file in folder or show default downloads folder
    */
   showDownloadItem(downloadId) {
@@ -11414,7 +11516,8 @@ chrome.webRequest.onHeadersReceived.addListener(
         }
         const urlLower = details.url.toLowerCase();
         const isHlsPlaylist = urlLower.includes(".m3u8") || contentType.includes("application/vnd.apple.mpegurl") || contentType.includes("application/x-mpegurl") || contentType.includes("audio/x-mpegurl");
-        const isDirectAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url);
+        const isVideo = contentType.includes("video/") || urlLower.includes(".mp4") || urlLower.includes(".webm") || urlLower.includes(".mkv");
+        const isDirectAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url) || isVideo;
         if (!isDirectAudio && !isHlsPlaylist) return;
         if (isStreamChunkOrFragment(details.url, contentLength)) {
           return;
@@ -11438,20 +11541,21 @@ chrome.webRequest.onHeadersReceived.addListener(
         } catch {
         }
         const { title, artist } = parseTitleAndArtistFromTab(tabTitle, pageUrl);
-        const format = isHlsPlaylist ? "mp3" : getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url));
+        const format = isHlsPlaylist ? "mp3" : getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url)) || (isVideo ? "mp4" : "mp3");
         const item = createDetectedMediaItem({
           url: details.url,
-          source: isHlsPlaylist ? "hls-manifest" : "network-request",
+          source: isHlsPlaylist ? "hls-manifest" : isVideo ? "dom-video" : "network-request",
           pageUrl,
           tabId: details.tabId,
           title,
           artist,
+          mediaType: isVideo ? "video" : "audio",
           format,
           mimeType: isHlsPlaylist ? "application/vnd.apple.mpegurl" : contentType,
           sourceType: isHlsPlaylist ? "PLAYLIST" : "DIRECT_FILE",
           size: isHlsPlaylist ? void 0 : contentLength > 0 ? contentLength : void 0,
           downloadable: true,
-          downloadReason: isHlsPlaylist ? "S\u1EB5n s\xE0ng t\u1EA3i b\xE0i h\xE1t \u0111\u1EA7y \u0111\u1EE7 (Gh\xE9p t\u1EEB lu\u1ED3ng HLS)" : "T\u1EC7p \xE2m thanh n\u1EA1p t\u1EEB m\u1EA1ng m\xE1y ch\u1EE7",
+          downloadReason: isHlsPlaylist ? "S\u1EB5n s\xE0ng t\u1EA3i b\xE0i h\xE1t \u0111\u1EA7y \u0111\u1EE7 (Gh\xE9p t\u1EEB lu\u1ED3ng HLS)" : isVideo ? "File video MP4 s\u1EB5n s\xE0ng t\u1EA3i v\u1EC1" : "T\u1EC7p \xE2m thanh n\u1EA1p t\u1EEB m\u1EA1ng m\xE1y ch\u1EE7",
           streamingProtocol: isHlsPlaylist ? "HLS Audio Stream" : void 0
         });
         if (item) {
@@ -11547,52 +11651,55 @@ chrome.downloads.onChanged.addListener((delta) => {
   })();
 });
 var pendingDownloads = /* @__PURE__ */ new Map();
+var cachedSubfolder = "music";
+var lastRegisteredFilename = "";
+void (async () => {
+  try {
+    const s = await storageService.getSettings();
+    if (s.downloadSubfolder) {
+      cachedSubfolder = s.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, "_");
+    }
+  } catch {
+  }
+})();
+if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.audioflow_settings?.newValue) {
+      const s = changes.audioflow_settings.newValue;
+      if (s && s.downloadSubfolder !== void 0) {
+        cachedSubfolder = (s.downloadSubfolder || "").trim().replace(/[<>:"/\\|?*]/g, "_");
+      }
+    }
+  });
+}
 chrome.downloads.onDeterminingFilename.addListener(
   (item, suggest) => {
-    void (async () => {
-      try {
-        const settings = await storageService.getSettings();
-        const subfolder = (settings.downloadSubfolder || "").trim().replace(/[<>:"/\\|?*]/g, "_");
-        const pending = pendingDownloads.get(item.url) || pendingDownloads.get(item.id.toString());
-        if (pending) {
-          const folder = pending.subfolder || subfolder;
-          const cleanName = pending.filename.replace(/[/\\]+/g, "_");
-          const finalPath = folder ? `${folder}/${cleanName}` : cleanName;
-          suggest({ filename: finalPath, conflictAction: "uniquify" });
-          pendingDownloads.delete(item.url);
-          return;
+    try {
+      const subfolder = (cachedSubfolder || "").trim().replace(/[<>:"/\\|?*]/g, "_").replace(/^\/+|\/+$/g, "");
+      const pending = pendingDownloads.get(item.url) || pendingDownloads.get(item.id.toString());
+      let folder = (pending?.subfolder !== void 0 ? pending.subfolder : subfolder).trim().replace(/[<>:"/\\|?*]/g, "_").replace(/^\/+|\/+$/g, "");
+      let rawName = "";
+      if (pending && pending.filename) {
+        rawName = pending.filename;
+        pendingDownloads.delete(item.url);
+      } else {
+        rawName = item.filename || lastRegisteredFilename || "media.mp3";
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(rawName) && lastRegisteredFilename) {
+          rawName = lastRegisteredFilename;
         }
-        const stored = await storageService.getStoredDownloads();
-        const match = stored.find(
-          (d) => d.downloadId === item.id || d.url === item.url || item.url.startsWith("blob:") && d.url.startsWith("blob:")
-        );
-        let songFilename = match?.filename;
-        if (!songFilename && stored.length > 0 && stored[0].filename) {
-          songFilename = stored[0].filename;
-        }
-        if (songFilename && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(songFilename)) {
-          const cleanName = songFilename.replace(/[/\\]+/g, "_");
-          const finalPath = subfolder ? `${subfolder}/${cleanName}` : cleanName;
-          suggest({ filename: finalPath, conflictAction: "uniquify" });
-          return;
-        }
-        if (item.url.startsWith("blob:")) {
-          const fallbackName = stored[0]?.filename || "AudioFlow_Music.mp3";
-          const cleanName = fallbackName.replace(/[/\\]+/g, "_");
-          const finalPath = subfolder ? `${subfolder}/${cleanName}` : cleanName;
-          suggest({ filename: finalPath, conflictAction: "uniquify" });
-          return;
-        }
-        if (subfolder && item.filename && !item.filename.startsWith(subfolder)) {
-          suggest({ filename: `${subfolder}/${item.filename}`, conflictAction: "uniquify" });
-          return;
-        }
-        suggest();
-      } catch {
-        suggest();
       }
-    })();
-    return true;
+      rawName = rawName.replace(/\\/g, "/");
+      if (rawName.includes("/")) {
+        rawName = rawName.substring(rawName.lastIndexOf("/") + 1);
+      }
+      const cleanName = cleanFilename(rawName);
+      const finalPath = folder ? `${folder}/${cleanName}` : cleanName;
+      suggest({ filename: finalPath, conflictAction: "uniquify" });
+    } catch (e) {
+      console.warn("[AudioFlow] onDeterminingFilename error:", e);
+      suggest();
+    }
+    return false;
   }
 );
 chrome.runtime.onMessage.addListener(
@@ -11660,6 +11767,10 @@ chrome.runtime.onMessage.addListener(
           if (message.payload) {
             const { url, filename, subfolder } = message.payload;
             pendingDownloads.set(url, { filename, subfolder });
+            if (filename) lastRegisteredFilename = filename;
+            if (subfolder !== void 0) {
+              cachedSubfolder = (subfolder || "").trim().replace(/[<>:"/\\|?*]/g, "_");
+            }
             return { success: true };
           }
           return { success: false };
@@ -11677,7 +11788,8 @@ chrome.runtime.onMessage.addListener(
               audioId: payload.audioId,
               domain: payload.domain,
               size: payload.size,
-              saveAs: payload.saveAs
+              saveAs: payload.saveAs,
+              targetFormat: payload.targetFormat
             });
             return { success: true, downloadId };
           } catch (err) {

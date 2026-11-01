@@ -1,6 +1,6 @@
 import React from 'react';
 import { TabType } from '../types/audio';
-import { Radio, ArrowDownToLine, FolderHeart, SlidersHorizontal } from 'lucide-react';
+import { Radio, Link2, ArrowDownToLine, FolderHeart, SlidersHorizontal } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: TabType;
@@ -23,8 +23,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       badge: detectedCount > 0 ? detectedCount : null,
     },
     {
+      id: 'link' as TabType,
+      label: 'Tải link',
+      icon: Link2,
+      badge: null,
+    },
+    {
       id: 'downloads' as TabType,
-      label: 'Đang tải',
+      label: 'Tải về',
       icon: ArrowDownToLine,
       badge: activeDownloadsCount > 0 ? activeDownloadsCount : null,
     },

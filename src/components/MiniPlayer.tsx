@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Play, Pause, X, Volume2, VolumeX, AlertCircle } from 'lucide-react';
+import { Play, Pause, X, Volume2, VolumeX, AlertCircle, Radio } from 'lucide-react';
 import { formatDuration } from '../utils/formatters';
 
 interface MiniPlayerProps {
@@ -83,7 +83,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
   };
 
   return (
-    <div className="bg-surface-light dark:bg-surface-dark border-t border-line-light dark:border-line-dark px-3.5 py-2 animate-slide-up z-30 shrink-0">
+    <div className="bg-surface-light dark:bg-surface-dark border-t border-line-light dark:border-line-dark px-3 py-2 animate-slide-up z-30 shrink-0 shadow-lg">
       <audio
         ref={audioRef}
         src={url}
@@ -94,35 +94,55 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
         preload="metadata"
       />
 
-      {/* Title & Close */}
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-1.5 truncate">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand shrink-0"></span>
-          <span className="text-xs font-medium text-content-light dark:text-content-dark truncate max-w-[280px]">
+      {/* Row 1: Title, Time & Close */}
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <span className="w-2 h-2 rounded-full bg-brand shrink-0 animate-pulse"></span>
+          <span
+            className="text-xs font-semibold text-content-light dark:text-content-dark truncate"
+            title={title}
+          >
             {title}
           </span>
         </div>
-        <button
-          onClick={onClose}
-          className="text-content-secondary hover:text-content-light dark:hover:text-content-dark p-1 rounded transition-colors"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {!hasError && (
+            <span className="text-[10px] text-content-secondary font-mono">
+              {formatDuration(currentTime)} / {formatDuration(duration)}
+            </span>
+          )}
+          <button
+            onClick={onClose}
+            title="Đóng trình phát"
+            className="text-content-secondary hover:text-content-light dark:hover:text-content-dark p-0.5 rounded transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {hasError ? (
-        <div className="flex items-center gap-1.5 text-[11px] text-content-secondary py-1">
-          <AlertCircle className="w-3.5 h-3.5 text-brand shrink-0" />
+        <div className="flex items-center gap-1.5 text-[10px] text-brand py-0.5">
+          <AlertCircle className="w-3 h-3 shrink-0" />
           <span>Không thể nghe thử luồng này do chính sách bảo vệ trang web (CORS).</span>
         </div>
       ) : (
-        <>
-          {/* Progress Bar */}
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] text-content-secondary font-mono min-w-[28px]">
-              {formatDuration(currentTime)}
-            </span>
+        /* Row 2: Play/Pause, Slider, Mute */
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={togglePlay}
+            className="w-6 h-6 rounded-full bg-brand hover:bg-brand-dark text-white flex items-center justify-center shrink-0 transition-colors active:scale-95 shadow-sm"
+          >
+            {isPlaying ? (
+              <Pause className="w-3 h-3 fill-current" />
+            ) : (
+              <Play className="w-3 h-3 fill-current ml-0.5" />
+            )}
+          </button>
 
+          {/* Seek Slider */}
+          <div className="flex-1 flex items-center">
             <input
               type="range"
               min={0}
@@ -130,42 +150,22 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
               value={currentTime}
               onChange={handleSeek}
               disabled={duration === 0}
-              className="w-full h-1 bg-surface-hoverLight dark:bg-surface-hoverDark rounded-lg appearance-none cursor-pointer"
+              className="w-full h-1 bg-surface-hoverLight dark:bg-surface-hoverDark rounded-lg appearance-none cursor-pointer accent-brand"
             />
-
-            <span className="text-[10px] text-content-secondary font-mono min-w-[28px] text-right">
-              {formatDuration(duration)}
-            </span>
           </div>
 
-          {/* Controls */}
-          <div className="flex items-center justify-between px-1">
-            <button
-              onClick={toggleMute}
-              className="text-content-secondary hover:text-content-light dark:hover:text-content-dark transition-colors"
-              title={isMuted ? 'Bật âm lượng' : 'Tắt tiếng'}
-            >
-              {isMuted ? (
-                <VolumeX className="w-3.5 h-3.5 text-brand" />
-              ) : (
-                <Volume2 className="w-3.5 h-3.5" />
-              )}
-            </button>
-
-            <button
-              onClick={togglePlay}
-              className="w-7 h-7 rounded-full bg-brand hover:bg-brand-dark text-white flex items-center justify-center transition-colors active:scale-95"
-            >
-              {isPlaying ? (
-                <Pause className="w-3.5 h-3.5 fill-current" />
-              ) : (
-                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-              )}
-            </button>
-
-            <div className="w-3.5"></div>
-          </div>
-        </>
+          <button
+            onClick={toggleMute}
+            className="text-content-secondary hover:text-content-light dark:hover:text-content-dark transition-colors shrink-0 p-0.5"
+            title={isMuted ? 'Bật âm lượng' : 'Tắt tiếng'}
+          >
+            {isMuted ? (
+              <VolumeX className="w-3.5 h-3.5 text-brand" />
+            ) : (
+              <Volume2 className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
       )}
     </div>
   );

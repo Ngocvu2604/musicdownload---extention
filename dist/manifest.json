@@ -15,19 +15,19 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "dist/background.js",
+    "service_worker": "background.js",
     "type": "module"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["dist/content.js"],
+      "js": ["content.js"],
       "run_at": "document_idle",
       "all_frames": true
     }
   ],
   "action": {
-    "default_popup": "dist/index.html",
+    "default_popup": "index.html",
     "default_title": "AudioFlow",
     "default_icon": {
       "16": "icons/icon16.png",

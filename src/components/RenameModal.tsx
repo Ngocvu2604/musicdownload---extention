@@ -28,7 +28,7 @@ export const RenameModal: React.FC<RenameModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-surface-light dark:bg-surface-dark border border-line-light dark:border-line-dark rounded-xl w-full max-w-[320px] p-4">
+      <div className="bg-surface-light dark:bg-surface-dark border border-line-light dark:border-line-dark rounded w-full max-w-[320px] p-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-line-light dark:border-line-dark">
           <div className="flex items-center gap-1.5">
@@ -51,7 +51,7 @@ export const RenameModal: React.FC<RenameModalProps> = ({
             <label className="block text-[11px] text-content-secondary mb-1 font-medium">
               Tên file tải về
             </label>
-            <div className="flex items-center bg-surface-hoverLight dark:bg-surface-hoverDark border border-line-light dark:border-line-dark focus-within:border-brand rounded-lg px-2.5 py-1.5 transition-colors">
+            <div className="flex items-center bg-surface-hoverLight dark:bg-surface-hoverDark border border-line-light dark:border-line-dark focus-within:border-brand rounded px-2.5 py-1.5 transition-colors">
               <input
                 type="text"
                 value={name}
@@ -71,13 +71,13 @@ export const RenameModal: React.FC<RenameModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium text-content-secondary hover:text-content-light dark:hover:text-content-dark bg-surface-hoverLight dark:bg-surface-hoverDark border border-line-light dark:border-line-dark transition-colors"
+              className="px-3 py-1.5 rounded text-xs font-medium text-content-secondary hover:text-content-light dark:hover:text-content-dark bg-surface-hoverLight dark:bg-surface-hoverDark border border-line-light dark:border-line-dark transition-colors"
             >
               Hủy
             </button>
             <button
               type="submit"
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand hover:bg-brand-dark text-white transition-colors"
+              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-semibold bg-brand hover:bg-brand-dark text-white transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Xác nhận & Tải</span>

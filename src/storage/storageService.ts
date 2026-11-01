@@ -4,7 +4,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   autoDetect: true,
   minFileSizeKB: 50,
   minDurationSeconds: 1,
-  downloadSubfolder: 'AudioFlow',
+  downloadSubfolder: 'music',
   promptFilename: false,
   audioNotification: true,
   theme: 'dark',

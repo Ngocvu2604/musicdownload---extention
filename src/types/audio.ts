@@ -147,7 +147,7 @@ export interface UserSettings {
   preferredFormat: 'mp3' | 'm4a' | 'wav';
 }
 
-export type TabType = 'home' | 'downloads' | 'library' | 'settings';
+export type TabType = 'home' | 'link' | 'downloads' | 'library' | 'settings';
 
 export type MessageType =
   | 'AUDIO_DETECTED'

@@ -1,7 +1,7 @@
 import { storageService } from '../storage/storageService';
 import { downloadManager } from '../services/downloadManager';
 import { createDetectedMediaItem, isAudioMimeType, isDirectAudioUrl, isStreamChunkOrFragment } from '../utils/audioDetector';
-import { parseTitleAndArtistFromTab, getFormatFromMimeOrExt, getExtensionFromUrl } from '../utils/formatters';
+import { parseTitleAndArtistFromTab, getFormatFromMimeOrExt, getExtensionFromUrl, cleanFilename } from '../utils/formatters';
 import { ExtensionMessage, HistoryItem, DetectedMedia } from '../types/audio';
 
 console.log('[AudioFlow] Background Service Worker initialized.');
@@ -82,7 +82,13 @@ chrome.webRequest.onHeadersReceived.addListener(
           contentType.includes('application/x-mpegurl') ||
           contentType.includes('audio/x-mpegurl');
 
-        const isDirectAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url);
+        const isVideo =
+          contentType.includes('video/') ||
+          urlLower.includes('.mp4') ||
+          urlLower.includes('.webm') ||
+          urlLower.includes('.mkv');
+
+        const isDirectAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url) || isVideo;
         if (!isDirectAudio && !isHlsPlaylist) return;
 
         // Ignore HLS / DASH stream chunks (like data024.m4a, seg-1.ts, 50KB fragments)
@@ -115,15 +121,16 @@ chrome.webRequest.onHeadersReceived.addListener(
         const { title, artist } = parseTitleAndArtistFromTab(tabTitle, pageUrl);
         const format = isHlsPlaylist
           ? 'mp3'
-          : getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url));
+          : getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url)) || (isVideo ? 'mp4' : 'mp3');
 
         const item = createDetectedMediaItem({
           url: details.url,
-          source: isHlsPlaylist ? 'hls-manifest' : 'network-request',
+          source: isHlsPlaylist ? 'hls-manifest' : (isVideo ? 'dom-video' : 'network-request'),
           pageUrl,
           tabId: details.tabId,
           title,
           artist,
+          mediaType: isVideo ? 'video' : 'audio',
           format,
           mimeType: isHlsPlaylist ? 'application/vnd.apple.mpegurl' : contentType,
           sourceType: isHlsPlaylist ? 'PLAYLIST' : 'DIRECT_FILE',
@@ -131,7 +138,7 @@ chrome.webRequest.onHeadersReceived.addListener(
           downloadable: true,
           downloadReason: isHlsPlaylist
             ? 'Sẵn sàng tải bài hát đầy đủ (Ghép từ luồng HLS)'
-            : 'Tệp âm thanh nạp từ mạng máy chủ',
+            : (isVideo ? 'File video MP4 sẵn sàng tải về' : 'Tệp âm thanh nạp từ mạng máy chủ'),
           streamingProtocol: isHlsPlaylist ? 'HLS Audio Stream' : undefined,
         });
 
@@ -252,75 +259,78 @@ chrome.downloads.onChanged.addListener((delta) => {
 
 // In-memory registry of pending downloads: Map<url, { filename, subfolder }>
 const pendingDownloads = new Map<string, { filename: string; subfolder: string }>();
+let cachedSubfolder = 'music';
+let lastRegisteredFilename = '';
+
+// Preload cached subfolder from storage
+void (async () => {
+  try {
+    const s = await storageService.getSettings();
+    if (s.downloadSubfolder) {
+      cachedSubfolder = s.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, '_');
+    }
+  } catch {}
+})();
+
+// Real-time synchronization whenever settings change
+if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.audioflow_settings?.newValue) {
+      const s = changes.audioflow_settings.newValue as any;
+      if (s && s.downloadSubfolder !== undefined) {
+        cachedSubfolder = (s.downloadSubfolder || '').trim().replace(/[<>:"/\\|?*]/g, '_');
+      }
+    }
+  });
+}
 
 /**
- * Intercept download filename determination to enforce clean song titles
+ * Intercept download filename determination to enforce clean track/video titles
  * and prevent Chrome from defaulting to blob UUIDs (e.g. 14f282ea-a22d-45f8...)
  * and ensure automatic saving to the configured subfolder (e.g. Downloads/music/)
+ *
+ * NOTE: Executed synchronously to prevent Chrome async suggestion timeout fallback!
  */
 chrome.downloads.onDeterminingFilename.addListener(
   (
     item: chrome.downloads.DownloadItem,
     suggest: (suggestion?: chrome.downloads.FilenameSuggestion) => void
-  ): boolean => {
-    void (async () => {
-      try {
-        const settings = await storageService.getSettings();
-        const subfolder = (settings.downloadSubfolder || '').trim().replace(/[<>:"/\\|?*]/g, '_');
+  ) => {
+    try {
+      const subfolder = (cachedSubfolder || '').trim().replace(/[<>:"/\\|?*]/g, '_').replace(/^\/+|\/+$/g, '');
 
-        // 1. Check pending in-memory registry by URL or download ID
-        const pending = pendingDownloads.get(item.url) || pendingDownloads.get(item.id.toString());
-        if (pending) {
-          const folder = pending.subfolder || subfolder;
-          const cleanName = pending.filename.replace(/[/\\]+/g, '_');
-          const finalPath = folder ? `${folder}/${cleanName}` : cleanName;
-          suggest({ filename: finalPath, conflictAction: 'uniquify' });
-          pendingDownloads.delete(item.url);
-          return;
+      // 1. Check pending in-memory registry by URL or download ID
+      const pending = pendingDownloads.get(item.url) || pendingDownloads.get(item.id.toString());
+      let folder = (pending?.subfolder !== undefined ? pending.subfolder : subfolder).trim().replace(/[<>:"/\\|?*]/g, '_').replace(/^\/+|\/+$/g, '');
+
+      let rawName = '';
+      if (pending && pending.filename) {
+        rawName = pending.filename;
+        pendingDownloads.delete(item.url);
+      } else {
+        rawName = item.filename || lastRegisteredFilename || 'media.mp3';
+        // Avoid blob UUID like ca2314bd-2453-4773...
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(rawName) && lastRegisteredFilename) {
+          rawName = lastRegisteredFilename;
         }
-
-        // 2. Check storage for matching download
-        const stored = await storageService.getStoredDownloads();
-        const match = stored.find(
-          (d) =>
-            d.downloadId === item.id ||
-            d.url === item.url ||
-            (item.url.startsWith('blob:') && d.url.startsWith('blob:'))
-        );
-
-        let songFilename = match?.filename;
-        if (!songFilename && stored.length > 0 && stored[0].filename) {
-          songFilename = stored[0].filename;
-        }
-
-        if (songFilename && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(songFilename)) {
-          const cleanName = songFilename.replace(/[/\\]+/g, '_');
-          const finalPath = subfolder ? `${subfolder}/${cleanName}` : cleanName;
-          suggest({ filename: finalPath, conflictAction: 'uniquify' });
-          return;
-        }
-
-        // 3. Fallback for any blob URL from extension: never let Chrome use the GUID!
-        if (item.url.startsWith('blob:')) {
-          const fallbackName = stored[0]?.filename || 'AudioFlow_Music.mp3';
-          const cleanName = fallbackName.replace(/[/\\]+/g, '_');
-          const finalPath = subfolder ? `${subfolder}/${cleanName}` : cleanName;
-          suggest({ filename: finalPath, conflictAction: 'uniquify' });
-          return;
-        }
-
-        // 4. For direct downloads: enforce subfolder if not already present
-        if (subfolder && item.filename && !item.filename.startsWith(subfolder)) {
-          suggest({ filename: `${subfolder}/${item.filename}`, conflictAction: 'uniquify' });
-          return;
-        }
-
-        suggest();
-      } catch {
-        suggest();
       }
-    })();
-    return true; // asynchronous suggestion
+
+      // Strip any path delimiters from filename
+      rawName = rawName.replace(/\\/g, '/');
+      if (rawName.includes('/')) {
+        rawName = rawName.substring(rawName.lastIndexOf('/') + 1);
+      }
+      const cleanName = cleanFilename(rawName);
+
+      // Build target path inside configured subfolder: e.g. "music/TrackTitle.mp3"
+      const finalPath = folder ? `${folder}/${cleanName}` : cleanName;
+
+      suggest({ filename: finalPath, conflictAction: 'uniquify' });
+    } catch (e) {
+      console.warn('[AudioFlow] onDeterminingFilename error:', e);
+      suggest();
+    }
+    return false; // Synchronous suggestion handled immediately
   }
 );
 
@@ -402,6 +412,10 @@ chrome.runtime.onMessage.addListener(
           if (message.payload) {
             const { url, filename, subfolder } = message.payload;
             pendingDownloads.set(url, { filename, subfolder });
+            if (filename) lastRegisteredFilename = filename;
+            if (subfolder !== undefined) {
+              cachedSubfolder = (subfolder || '').trim().replace(/[<>:"/\\|?*]/g, '_');
+            }
             return { success: true };
           }
           return { success: false };
@@ -421,6 +435,7 @@ chrome.runtime.onMessage.addListener(
               domain: payload.domain,
               size: payload.size,
               saveAs: payload.saveAs,
+              targetFormat: payload.targetFormat,
             });
             return { success: true, downloadId };
           } catch (err: any) {

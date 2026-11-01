@@ -19,7 +19,8 @@ import { EmptyState } from '../components/EmptyState';
 import { DownloadsView } from '../components/DownloadsView';
 import { LibraryView } from '../components/LibraryView';
 import { SettingsView } from '../components/SettingsView';
-import { Download, CheckSquare, Square, CheckCircle } from 'lucide-react';
+import { LinkDownloadView } from '../components/LinkDownloadView';
+import { Download, CheckSquare, Square, CheckCircle, RotateCw, Trash2 } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('home');
@@ -73,8 +74,7 @@ export const App: React.FC = () => {
       const playingCount = items.filter((i) => i.status === 'PLAYING').length;
       if (items.length > 0) {
         setScanToast(
-          `Tìm thấy ${items.length} nguồn media${
-            playingCount > 0 ? ` (${playingCount} đang phát)` : ''
+          `Tìm thấy ${items.length} nguồn media${playingCount > 0 ? ` (${playingCount} đang phát)` : ''
           }`
         );
       } else {
@@ -220,21 +220,38 @@ export const App: React.FC = () => {
   };
 
   /**
-   * Single audio download
+   * Single audio / video download
    */
-  const handleDownload = async (item: DetectedMedia, customFilename?: string) => {
+  const handleDownload = async (
+    item: DetectedMedia,
+    customFilename?: string,
+    targetFormat?: 'mp3' | 'm4a' | 'wav' | 'mp4'
+  ) => {
     if (!item.downloadable || !item.mediaUrl) {
       alert(item.downloadReason || 'Nguồn phát này không có file tải trực tiếp.');
       return;
     }
 
     try {
+      const isVideo = item.mediaType === 'video' || item.format === 'mp4';
+      const isHls = item.sourceType === 'PLAYLIST' || (item.mediaUrl ? item.mediaUrl.includes('.m3u8') : false);
+
+      let fallbackFormat: 'mp3' | 'm4a' | 'wav' | 'mp4' = 'mp3';
+      if (isVideo || item.format === 'mp4') fallbackFormat = 'mp4';
+      else if (item.format === 'wav') fallbackFormat = 'wav';
+      else if (item.format === 'm4a' || item.format === 'aac') fallbackFormat = 'm4a';
+
+      const effectiveFormat: 'mp3' | 'm4a' | 'wav' | 'mp4' = targetFormat || (isHls ? 'mp3' : fallbackFormat);
+      const isExplicit = !!targetFormat;
+
       await downloadManager.startDownload({
         url: item.mediaUrl,
         filename: customFilename || item.title || item.filename,
         audioId: item.id,
         domain: item.website,
         size: item.size,
+        targetFormat: effectiveFormat,
+        explicitFormatSelection: isExplicit,
       });
 
       setActiveTab('downloads');
@@ -256,6 +273,15 @@ export const App: React.FC = () => {
     } catch (err: any) {
       alert(`Không thể thử lại: ${err?.message || 'Lỗi mạng hoặc liên kết hết hạn'}`);
     }
+  };
+
+  /**
+   * Clear finished/interrupted downloads from list
+   */
+  const handleClearFinishedDownloads = async () => {
+    await downloadManager.clearFinishedDownloads();
+    const updated = await downloadManager.getChromeDownloads();
+    setDownloads(updated);
   };
 
   /**
@@ -396,11 +422,10 @@ export const App: React.FC = () => {
 
   return (
     <div
-      className={`flex flex-col w-[390px] h-[570px] select-none overflow-hidden relative transition-colors ${
-        settings.theme === 'light'
+      className={`flex flex-col w-[390px] h-[570px] select-none overflow-hidden relative transition-colors ${settings.theme === 'light'
           ? 'light bg-bg-light text-content-light'
           : 'dark bg-bg-dark text-content-dark'
-      }`}
+        }`}
     >
       {/* Top Header */}
       <Header
@@ -414,11 +439,10 @@ export const App: React.FC = () => {
         onToggleTheme={handleToggleTheme}
       />
 
-      {/* Real-time Scan Toast feedback */}
-      {scanToast && (
-        <div className="bg-brand/10 border-b border-brand/20 px-3 py-1.5 flex items-center gap-1.5 text-xs text-brand animate-fade-in z-20 shrink-0">
-          <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-          <span className="font-medium truncate">{scanToast}</span>
+      {/* Red Tone Scanning Preloader (Top Accent) */}
+      {isScanning && (
+        <div className="h-0.5 w-full bg-brand/20 overflow-hidden z-20 shrink-0 relative">
+          <div className="h-full bg-brand animate-pulse w-full"></div>
         </div>
       )}
 
@@ -426,7 +450,7 @@ export const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto min-h-0 relative">
         {/* TAB 1: HOME (DETECTION) */}
         {activeTab === 'home' && (
-          <div className="p-3.5 space-y-2.5 animate-fade-in">
+          <div className={`p-3.5 space-y-2.5 animate-fade-in ${detectedItems.length === 0 ? 'h-full flex flex-col justify-center' : ''}`}>
             {/* YouTube Notice Card */}
             {isYouTube && (
               <YouTubeNotice
@@ -456,32 +480,60 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            {/* Batch Action Toolbar (if downloadable items available) */}
-            {downloadableItems.length > 0 && (
-              <div className="bg-surface-light dark:bg-surface-dark border border-line-light dark:border-line-dark rounded-lg px-3 py-2 flex items-center justify-between text-xs">
-                <button
-                  onClick={handleToggleSelectAll}
-                  className="flex items-center gap-1.5 text-content-secondary hover:text-content-light dark:hover:text-content-dark transition-colors"
-                >
-                  {selectedIds.size === downloadableItems.length && downloadableItems.length > 0 ? (
-                    <CheckSquare className="w-4 h-4 text-brand" />
-                  ) : (
-                    <Square className="w-4 h-4" />
-                  )}
-                  <span>
-                    Chọn tất cả ({selectedIds.size}/{downloadableItems.length})
-                  </span>
-                </button>
+            {/* Action Toolbar: Chọn tất cả (trái, không khung) - Quét lại & Xóa (phải) */}
+                  {detectedItems.length > 0 && (
+                    <div className="flex items-center justify-between px-1 py-0.5 text-xs select-none">
+                      {/* Left: Checkbox Chọn tất cả (Không khung) */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        {downloadableItems.length > 0 && (
+                          <button
+                            onClick={handleToggleSelectAll}
+                            className="flex items-center gap-1.5 text-content-secondary hover:text-content-light dark:hover:text-content-dark transition-colors"
+                          >
+                            {selectedIds.size === downloadableItems.length && downloadableItems.length > 0 ? (
+                              <CheckSquare className="w-4 h-4 text-brand" />
+                            ) : (
+                              <Square className="w-4 h-4" />
+                            )}
+                            <span className="text-[11px] font-medium">
+                              Chọn tất cả ({selectedIds.size}/{downloadableItems.length})
+                            </span>
+                          </button>
+                        )}
 
-                {selectedIds.size > 0 && (
-                  <button
-                    onClick={handleBatchDownload}
-                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-brand hover:bg-brand-dark text-white font-semibold text-xs transition-colors active:scale-95"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Tải {selectedIds.size} file</span>
-                  </button>
-                )}
+                        {
+                          selectedIds.size > 0 && (
+                            <button
+                              onClick={handleBatchDownload}
+                              className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-brand hover:bg-brand-dark text-white font-semibold text-[11px] transition-colors active:scale-95 shadow-sm"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>Tải {selectedIds.size} file</span>
+                            </button>
+                          )
+                        }
+                </div>
+
+                {/* Right: Nút Quét lại & Xóa dời xuống dưới ngang hàng */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={handleScanAgain}
+                      disabled={isScanning}
+                      title="Quét lại tab hiện tại"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-content-secondary hover:text-content-light dark:hover:text-content-dark hover:bg-surface-light dark:hover:bg-surface-dark transition-colors disabled:opacity-50"
+                    >
+                      <RotateCw className={`w-3 h-3 text-brand ${isScanning ? 'animate-spin' : ''}`} />
+                      <span>Quét lại</span>
+                    </button>
+
+                    <button
+                      onClick={handleClearCurrentTab}
+                      title="Xóa danh sách media trên trang này"
+                      className="p-1 rounded text-content-secondary hover:text-brand hover:bg-surface-light dark:hover:bg-surface-dark transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
               </div>
             )}
 
@@ -495,7 +547,7 @@ export const App: React.FC = () => {
                     isPlayingPreview={playingPreviewUrl === item.mediaUrl}
                     isSelected={selectedIds.has(item.id)}
                     onPlayPreviewToggle={() => handlePlayPreviewToggle(item)}
-                    onDownload={() => handleDownload(item)}
+                    onDownload={(fmt) => handleDownload(item, undefined, fmt)}
                     onRename={() => setRenameTarget(item)}
                     onToggleSelect={() => handleToggleSelect(item.id)}
                   />
@@ -511,7 +563,20 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 2: DOWNLOADS */}
+        {/* TAB 2: LINK DOWNLOAD (TẢI BẰNG LIÊN KẾT) */}
+        {activeTab === 'link' && (
+          <div className="h-full">
+            <LinkDownloadView
+              onDownloadStarted={async () => {
+                setActiveTab('downloads');
+                const updated = await downloadManager.getChromeDownloads();
+                setDownloads(updated);
+              }}
+            />
+          </div>
+        )}
+
+        {/* TAB 3: DOWNLOADS */}
         {activeTab === 'downloads' && (
           <DownloadsView
             downloads={downloads}
@@ -521,6 +586,7 @@ export const App: React.FC = () => {
             onShowItem={(id) => downloadManager.showDownloadItem(id)}
             onOpenFolder={() => downloadManager.openDownloadsFolder()}
             onRetry={handleRetryDownload}
+            onClearFinished={handleClearFinishedDownloads}
           />
         )}
 
@@ -566,6 +632,14 @@ export const App: React.FC = () => {
           />
         )}
       </main>
+
+      {/* Bottom Scan Toast Feedback (Moved to Bottom) */}
+      {scanToast && (
+        <div className="bg-brand/10 border-t border-brand/20 px-3.5 py-1.5 flex items-center gap-2 text-xs text-brand animate-fade-in z-20 shrink-0 select-none">
+          <CheckCircle className="w-3.5 h-3.5 text-brand shrink-0" />
+          <span className="font-medium truncate">{scanToast}</span>
+        </div>
+      )}
 
       {/* Mini Audio Player (Docked above Navbar if active) */}
       {playingPreviewUrl && (
