@@ -54,7 +54,7 @@ async function ensureContentScriptInjected(tabId: number): Promise<boolean> {
  * Listen for network requests that respond with audio MIME types or extensions
  */
 chrome.webRequest.onHeadersReceived.addListener(
-  (details) => {
+  (details: chrome.webRequest.OnHeadersReceivedDetails): chrome.webRequest.BlockingResponse | undefined => {
     void (async () => {
       if (details.tabId <= 0 || !details.responseHeaders) return;
 
@@ -111,6 +111,7 @@ chrome.webRequest.onHeadersReceived.addListener(
         console.warn('[AudioFlow] Error in webRequest:', err);
       }
     })();
+    return undefined;
   },
   { urls: ['<all_urls>'] },
   ['responseHeaders']

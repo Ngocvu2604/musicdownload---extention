@@ -721,6 +721,7 @@ chrome.webRequest.onHeadersReceived.addListener(
         console.warn("[AudioFlow] Error in webRequest:", err);
       }
     })();
+    return void 0;
   },
   { urls: ["<all_urls>"] },
   ["responseHeaders"]
