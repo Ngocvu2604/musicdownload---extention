@@ -9,12 +9,8 @@
       return "unknown";
     }
   }
-  function buildSanitizedFilename(title, artist, ext = "mp3") {
-    let base = title.trim();
-    if (artist && artist.trim() && !base.toLowerCase().includes(artist.toLowerCase())) {
-      base = `${artist.trim()} - ${base}`;
-    }
-    return cleanFilename(base, ext);
+  function buildSanitizedFilename(title, _artist, ext = "mp3") {
+    return cleanFilename(title.trim(), ext);
   }
   function cleanFilename(name, fallbackExt = "mp3") {
     if (!name || !name.trim()) {

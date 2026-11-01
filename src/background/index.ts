@@ -250,9 +250,13 @@ chrome.downloads.onChanged.addListener((delta) => {
   })();
 });
 
+// In-memory registry of pending downloads: Map<url, { filename, subfolder }>
+const pendingDownloads = new Map<string, { filename: string; subfolder: string }>();
+
 /**
  * Intercept download filename determination to enforce clean song titles
- * and prevent Chrome from defaulting to blob UUIDs (e.g. ca2314bd-2453...)
+ * and prevent Chrome from defaulting to blob UUIDs (e.g. 14f282ea-a22d-45f8...)
+ * and ensure automatic saving to the configured subfolder (e.g. Downloads/music/)
  */
 chrome.downloads.onDeterminingFilename.addListener(
   (
@@ -261,6 +265,21 @@ chrome.downloads.onDeterminingFilename.addListener(
   ): boolean => {
     void (async () => {
       try {
+        const settings = await storageService.getSettings();
+        const subfolder = (settings.downloadSubfolder || '').trim().replace(/[<>:"/\\|?*]/g, '_');
+
+        // 1. Check pending in-memory registry by URL or download ID
+        const pending = pendingDownloads.get(item.url) || pendingDownloads.get(item.id.toString());
+        if (pending) {
+          const folder = pending.subfolder || subfolder;
+          const cleanName = pending.filename.replace(/[/\\]+/g, '_');
+          const finalPath = folder ? `${folder}/${cleanName}` : cleanName;
+          suggest({ filename: finalPath, conflictAction: 'uniquify' });
+          pendingDownloads.delete(item.url);
+          return;
+        }
+
+        // 2. Check storage for matching download
         const stored = await storageService.getStoredDownloads();
         const match = stored.find(
           (d) =>
@@ -269,22 +288,31 @@ chrome.downloads.onDeterminingFilename.addListener(
             (item.url.startsWith('blob:') && d.url.startsWith('blob:'))
         );
 
-        if (match && match.filename) {
-          const settings = await storageService.getSettings();
-          let finalName = match.filename.replace(/[/\\]+/g, '_');
-          if (settings.downloadSubfolder && settings.downloadSubfolder.trim() && !settings.promptFilename) {
-            finalName = `${settings.downloadSubfolder.trim()}/${finalName}`;
-          }
-          suggest({ filename: finalName, conflictAction: 'uniquify' });
+        let songFilename = match?.filename;
+        if (!songFilename && stored.length > 0 && stored[0].filename) {
+          songFilename = stored[0].filename;
+        }
+
+        if (songFilename && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(songFilename)) {
+          const cleanName = songFilename.replace(/[/\\]+/g, '_');
+          const finalPath = subfolder ? `${subfolder}/${cleanName}` : cleanName;
+          suggest({ filename: finalPath, conflictAction: 'uniquify' });
           return;
         }
 
-        // If filename looks like a GUID, use the most recent detected track title
-        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(item.filename)) {
-          if (stored.length > 0 && stored[0].filename) {
-            suggest({ filename: stored[0].filename, conflictAction: 'uniquify' });
-            return;
-          }
+        // 3. Fallback for any blob URL from extension: never let Chrome use the GUID!
+        if (item.url.startsWith('blob:')) {
+          const fallbackName = stored[0]?.filename || 'AudioFlow_Music.mp3';
+          const cleanName = fallbackName.replace(/[/\\]+/g, '_');
+          const finalPath = subfolder ? `${subfolder}/${cleanName}` : cleanName;
+          suggest({ filename: finalPath, conflictAction: 'uniquify' });
+          return;
+        }
+
+        // 4. For direct downloads: enforce subfolder if not already present
+        if (subfolder && item.filename && !item.filename.startsWith(subfolder)) {
+          suggest({ filename: `${subfolder}/${item.filename}`, conflictAction: 'uniquify' });
+          return;
         }
 
         suggest();
@@ -368,6 +396,15 @@ chrome.runtime.onMessage.addListener(
           await storageService.clearTabAudio(tabId);
           await updateTabBadge(tabId);
           return { success: true };
+        }
+
+        case 'REGISTER_PENDING_DOWNLOAD': {
+          if (message.payload) {
+            const { url, filename, subfolder } = message.payload;
+            pendingDownloads.set(url, { filename, subfolder });
+            return { success: true };
+          }
+          return { success: false };
         }
 
         case 'VALIDATE_AND_DOWNLOAD':

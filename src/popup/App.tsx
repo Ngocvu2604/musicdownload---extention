@@ -231,7 +231,7 @@ export const App: React.FC = () => {
     try {
       await downloadManager.startDownload({
         url: item.mediaUrl,
-        filename: customFilename || item.filename,
+        filename: customFilename || item.title || item.filename,
         audioId: item.id,
         domain: item.website,
         size: item.size,
@@ -271,7 +271,7 @@ export const App: React.FC = () => {
       await downloadManager.batchDownload(
         selectedItems.map((i) => ({
           url: i.mediaUrl!,
-          filename: i.filename,
+          filename: i.title || i.filename,
           audioId: i.id,
           domain: i.website,
           size: i.size,

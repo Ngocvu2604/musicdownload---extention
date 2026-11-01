@@ -63,20 +63,29 @@ export class DownloadManager {
 
     const cleanName = cleanFilename(finalFilename);
     const shouldPrompt = params.saveAs !== undefined ? params.saveAs : settings.promptFilename;
-
-    let targetFilename = cleanName;
-    if (!shouldPrompt && settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
-      const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, '_');
-      targetFilename = `${folder}/${cleanName}`;
-    }
+    const subfolder = (settings.downloadSubfolder || '').trim().replace(/[<>:"/\\|?*]/g, '_');
+    const targetFilename = subfolder ? `${subfolder}/${cleanName}` : cleanName;
 
     if (isChromeExtension) {
       try {
+        try {
+          await chrome.runtime.sendMessage({
+            type: 'REGISTER_PENDING_DOWNLOAD',
+            payload: {
+              url: params.url,
+              filename: cleanName,
+              subfolder,
+            },
+          });
+        } catch {
+          // Extension messaging transition
+        }
+
         const downloadId = await chrome.downloads.download({
           url: params.url,
           filename: targetFilename,
           conflictAction: 'uniquify',
-          saveAs: params.saveAs !== undefined ? params.saveAs : settings.promptFilename,
+          saveAs: shouldPrompt,
         });
 
         const ext = getExtensionFromUrl(cleanName);
@@ -257,12 +266,8 @@ export class DownloadManager {
 
       // Ensure filename matches final format extension
       cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${finalExt}`);
-      if (!shouldPrompt && settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
-        const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, '_');
-        targetFilename = `${folder}/${cleanName}`;
-      } else {
-        targetFilename = cleanName;
-      }
+      const subfolder = (settings.downloadSubfolder || '').trim().replace(/[<>:"/\\|?*]/g, '_');
+      const targetFilename = subfolder ? `${subfolder}/${cleanName}` : cleanName;
 
       // Convert Blob to URL for Chrome download
       let objectUrl: string;
@@ -270,6 +275,20 @@ export class DownloadManager {
         objectUrl = URL.createObjectURL(finalBlob);
       } catch {
         objectUrl = await this.blobToDataUrl(finalBlob);
+      }
+
+      // Pre-register URL, clean filename, and subfolder in background for onDeterminingFilename
+      try {
+        await chrome.runtime.sendMessage({
+          type: 'REGISTER_PENDING_DOWNLOAD',
+          payload: {
+            url: objectUrl,
+            filename: cleanName,
+            subfolder,
+          },
+        });
+      } catch {
+        // Extension messaging transition
       }
 
       // Pre-register final URL and filename in stored downloads for onDeterminingFilename

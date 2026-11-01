@@ -303,12 +303,8 @@ function parseFilenameFromContentDisposition(header) {
   }
   return null;
 }
-function buildSanitizedFilename(title, artist, ext = "mp3") {
-  let base = title.trim();
-  if (artist && artist.trim() && !base.toLowerCase().includes(artist.toLowerCase())) {
-    base = `${artist.trim()} - ${base}`;
-  }
-  return cleanFilename(base, ext);
+function buildSanitizedFilename(title, _artist, ext = "mp3") {
+  return cleanFilename(title.trim(), ext);
 }
 function cleanFilename(name, fallbackExt = "mp3") {
   if (!name || !name.trim()) {
@@ -10924,18 +10920,26 @@ var DownloadManager = class {
     }
     const cleanName = cleanFilename(finalFilename);
     const shouldPrompt = params.saveAs !== void 0 ? params.saveAs : settings.promptFilename;
-    let targetFilename = cleanName;
-    if (!shouldPrompt && settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
-      const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, "_");
-      targetFilename = `${folder}/${cleanName}`;
-    }
+    const subfolder = (settings.downloadSubfolder || "").trim().replace(/[<>:"/\\|?*]/g, "_");
+    const targetFilename = subfolder ? `${subfolder}/${cleanName}` : cleanName;
     if (isChromeExtension2) {
       try {
+        try {
+          await chrome.runtime.sendMessage({
+            type: "REGISTER_PENDING_DOWNLOAD",
+            payload: {
+              url: params.url,
+              filename: cleanName,
+              subfolder
+            }
+          });
+        } catch {
+        }
         const downloadId = await chrome.downloads.download({
           url: params.url,
           filename: targetFilename,
           conflictAction: "uniquify",
-          saveAs: params.saveAs !== void 0 ? params.saveAs : settings.promptFilename
+          saveAs: shouldPrompt
         });
         const ext = getExtensionFromUrl(cleanName);
         const format = getFormatFromMimeOrExt(void 0, ext);
@@ -11089,17 +11093,24 @@ var DownloadManager = class {
         finalExt = finalFormat;
       }
       cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${finalExt}`);
-      if (!shouldPrompt && settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
-        const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, "_");
-        targetFilename = `${folder}/${cleanName}`;
-      } else {
-        targetFilename = cleanName;
-      }
+      const subfolder = (settings.downloadSubfolder || "").trim().replace(/[<>:"/\\|?*]/g, "_");
+      const targetFilename2 = subfolder ? `${subfolder}/${cleanName}` : cleanName;
       let objectUrl;
       try {
         objectUrl = URL.createObjectURL(finalBlob);
       } catch {
         objectUrl = await this.blobToDataUrl(finalBlob);
+      }
+      try {
+        await chrome.runtime.sendMessage({
+          type: "REGISTER_PENDING_DOWNLOAD",
+          payload: {
+            url: objectUrl,
+            filename: cleanName,
+            subfolder
+          }
+        });
+      } catch {
       }
       const preDownloads = await storageService.getStoredDownloads();
       const preIdx = preDownloads.findIndex((d) => d.downloadId === tempDownloadId);
@@ -11112,7 +11123,7 @@ var DownloadManager = class {
       if (isChromeExtension2) {
         const chromeDownloadId = await chrome.downloads.download({
           url: objectUrl,
-          filename: targetFilename,
+          filename: targetFilename2,
           conflictAction: "uniquify",
           saveAs: shouldPrompt
         });
@@ -11535,28 +11546,46 @@ chrome.downloads.onChanged.addListener((delta) => {
     }
   })();
 });
+var pendingDownloads = /* @__PURE__ */ new Map();
 chrome.downloads.onDeterminingFilename.addListener(
   (item, suggest) => {
     void (async () => {
       try {
+        const settings = await storageService.getSettings();
+        const subfolder = (settings.downloadSubfolder || "").trim().replace(/[<>:"/\\|?*]/g, "_");
+        const pending = pendingDownloads.get(item.url) || pendingDownloads.get(item.id.toString());
+        if (pending) {
+          const folder = pending.subfolder || subfolder;
+          const cleanName = pending.filename.replace(/[/\\]+/g, "_");
+          const finalPath = folder ? `${folder}/${cleanName}` : cleanName;
+          suggest({ filename: finalPath, conflictAction: "uniquify" });
+          pendingDownloads.delete(item.url);
+          return;
+        }
         const stored = await storageService.getStoredDownloads();
         const match = stored.find(
           (d) => d.downloadId === item.id || d.url === item.url || item.url.startsWith("blob:") && d.url.startsWith("blob:")
         );
-        if (match && match.filename) {
-          const settings = await storageService.getSettings();
-          let finalName = match.filename.replace(/[/\\]+/g, "_");
-          if (settings.downloadSubfolder && settings.downloadSubfolder.trim() && !settings.promptFilename) {
-            finalName = `${settings.downloadSubfolder.trim()}/${finalName}`;
-          }
-          suggest({ filename: finalName, conflictAction: "uniquify" });
+        let songFilename = match?.filename;
+        if (!songFilename && stored.length > 0 && stored[0].filename) {
+          songFilename = stored[0].filename;
+        }
+        if (songFilename && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(songFilename)) {
+          const cleanName = songFilename.replace(/[/\\]+/g, "_");
+          const finalPath = subfolder ? `${subfolder}/${cleanName}` : cleanName;
+          suggest({ filename: finalPath, conflictAction: "uniquify" });
           return;
         }
-        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(item.filename)) {
-          if (stored.length > 0 && stored[0].filename) {
-            suggest({ filename: stored[0].filename, conflictAction: "uniquify" });
-            return;
-          }
+        if (item.url.startsWith("blob:")) {
+          const fallbackName = stored[0]?.filename || "AudioFlow_Music.mp3";
+          const cleanName = fallbackName.replace(/[/\\]+/g, "_");
+          const finalPath = subfolder ? `${subfolder}/${cleanName}` : cleanName;
+          suggest({ filename: finalPath, conflictAction: "uniquify" });
+          return;
+        }
+        if (subfolder && item.filename && !item.filename.startsWith(subfolder)) {
+          suggest({ filename: `${subfolder}/${item.filename}`, conflictAction: "uniquify" });
+          return;
         }
         suggest();
       } catch {
@@ -11626,6 +11655,14 @@ chrome.runtime.onMessage.addListener(
           await storageService.clearTabAudio(tabId);
           await updateTabBadge(tabId);
           return { success: true };
+        }
+        case "REGISTER_PENDING_DOWNLOAD": {
+          if (message.payload) {
+            const { url, filename, subfolder } = message.payload;
+            pendingDownloads.set(url, { filename, subfolder });
+            return { success: true };
+          }
+          return { success: false };
         }
         case "VALIDATE_AND_DOWNLOAD":
         case "START_DOWNLOAD": {

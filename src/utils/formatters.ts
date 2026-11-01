@@ -112,14 +112,10 @@ export function parseFilenameFromContentDisposition(header?: string): string | n
 }
 
 /**
- * Build sanitized filename combining artist & title
+ * Build sanitized filename using exact track title as requested
  */
-export function buildSanitizedFilename(title: string, artist?: string, ext = 'mp3'): string {
-  let base = title.trim();
-  if (artist && artist.trim() && !base.toLowerCase().includes(artist.toLowerCase())) {
-    base = `${artist.trim()} - ${base}`;
-  }
-  return cleanFilename(base, ext);
+export function buildSanitizedFilename(title: string, _artist?: string, ext = 'mp3'): string {
+  return cleanFilename(title.trim(), ext);
 }
 
 /**

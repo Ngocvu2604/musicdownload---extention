@@ -170,6 +170,7 @@ export type MessageType =
   | 'DOWNLOADS_STATUS_UPDATE'
   | 'GET_SETTINGS'
   | 'UPDATE_SETTINGS'
+  | 'REGISTER_PENDING_DOWNLOAD'
   | 'INJECT_CONTENT_SCRIPT';
 
 export interface ExtensionMessage<T = any> {
