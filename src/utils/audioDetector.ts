@@ -109,7 +109,9 @@ export function determineSourceType(url: string = '', mimeType: string = ''): Me
     lowerUrl.endsWith('.m4s') ||
     lowerUrl.includes('seg-') ||
     lowerUrl.includes('segment-') ||
-    lowerUrl.includes('range=')
+    lowerUrl.includes('range=') ||
+    lowerUrl.includes('cf-hls-media.sndcdn.com') ||
+    lowerUrl.includes('cf-hls-opus.sndcdn.com')
   ) {
     return 'MEDIA_SEGMENT';
   }

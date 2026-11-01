@@ -44,20 +44,55 @@
       return "";
     }
   }
+  function parseSoundCloudDocTitle(rawDocTitle) {
+    if (!rawDocTitle) return {};
+    let clean = rawDocTitle.trim();
+    clean = clean.replace(/\s*\|\s*Listen online for free on SoundCloud.*$/i, "");
+    clean = clean.replace(/\s*\|\s*Free Listening on SoundCloud.*$/i, "");
+    clean = clean.replace(/\s*\|\s*SoundCloud.*$/i, "");
+    clean = clean.replace(/\s*on SoundCloud.*$/i, "");
+    clean = clean.replace(/^Stream\s+/i, "");
+    clean = clean.replace(/^Listen to\s+/i, "");
+    clean = clean.trim();
+    const byMatch = clean.match(/^(.+?)\s+by\s+(.+)$/i);
+    if (byMatch && byMatch[1] && byMatch[2]) {
+      return { title: byMatch[1].trim(), artist: byMatch[2].trim() };
+    }
+    const dashMatch = clean.match(/^(.+?)\s*[-–—]\s*(.+)$/);
+    if (dashMatch && dashMatch[1] && dashMatch[2]) {
+      return { artist: dashMatch[1].trim(), title: dashMatch[2].trim() };
+    }
+    if (clean && clean.toLowerCase() !== "soundcloud") {
+      return { title: clean };
+    }
+    return {};
+  }
   function getFormatFromMimeOrExt(mimeType, ext) {
     const mime = (mimeType || "").toLowerCase();
     const e = (ext || "").toLowerCase().replace(/^\./, "");
-    if (e === "mp3" || mime.includes("audio/mpeg") || mime.includes("audio/mp3")) return "mp3";
-    if (e === "wav" || mime.includes("audio/wav") || mime.includes("audio/x-wav")) return "wav";
-    if (e === "flac" || mime.includes("audio/flac") || mime.includes("audio/x-flac")) return "flac";
-    if (e === "m4a" || mime.includes("audio/m4a") || mime.includes("audio/x-m4a")) return "m4a";
-    if (e === "aac" || mime.includes("audio/aac")) return "aac";
-    if (e === "ogg" || mime.includes("audio/ogg") || mime.includes("application/ogg")) return "ogg";
-    if (e === "opus" || mime.includes("audio/opus")) return "opus";
-    if (e === "m3u8" || mime.includes("application/vnd.apple.mpegurl") || mime.includes("application/x-mpegurl")) return "hls";
-    if (e === "mpd" || mime.includes("application/dash+xml")) return "dash";
-    if (e === "mp4" || mime.includes("video/mp4") || mime.includes("audio/mp4")) return "mp4";
-    if (e === "webm" || mime.includes("audio/webm") || mime.includes("video/webm")) return "webm";
+    if (mime.includes("audio/mpeg") || mime.includes("audio/mp3")) return "mp3";
+    if (mime.includes("audio/m4a") || mime.includes("audio/x-m4a")) return "m4a";
+    if (mime.includes("audio/aac") || mime.includes("audio/x-aac")) return "aac";
+    if (mime.includes("audio/wav") || mime.includes("audio/x-wav")) return "wav";
+    if (mime.includes("audio/flac") || mime.includes("audio/x-flac")) return "flac";
+    if (mime.includes("audio/ogg") || mime.includes("application/ogg")) return "ogg";
+    if (mime.includes("audio/opus")) return "opus";
+    if (mime.includes("audio/webm") || mime.includes("video/webm")) return "webm";
+    if (mime.includes("audio/mp4")) return "m4a";
+    if (mime.includes("video/mp4")) return "mp4";
+    if (mime.includes("application/vnd.apple.mpegurl") || mime.includes("application/x-mpegurl")) return "hls";
+    if (mime.includes("application/dash+xml")) return "dash";
+    if (e === "mp3") return "mp3";
+    if (e === "m4a") return "m4a";
+    if (e === "aac") return "aac";
+    if (e === "wav") return "wav";
+    if (e === "flac") return "flac";
+    if (e === "ogg") return "ogg";
+    if (e === "opus") return "opus";
+    if (e === "m3u8") return "hls";
+    if (e === "mpd") return "dash";
+    if (e === "mp4") return "mp4";
+    if (e === "webm") return "webm";
     return "unknown";
   }
 
@@ -123,7 +158,7 @@
     if (lowerUrl.includes(".m3u8") || lowerMime.includes("application/vnd.apple.mpegurl") || lowerMime.includes("application/x-mpegurl") || lowerUrl.includes(".mpd") || lowerMime.includes("application/dash+xml")) {
       return "PLAYLIST";
     }
-    if (lowerUrl.endsWith(".ts") || lowerUrl.endsWith(".m4s") || lowerUrl.includes("seg-") || lowerUrl.includes("segment-") || lowerUrl.includes("range=")) {
+    if (lowerUrl.endsWith(".ts") || lowerUrl.endsWith(".m4s") || lowerUrl.includes("seg-") || lowerUrl.includes("segment-") || lowerUrl.includes("range=") || lowerUrl.includes("cf-hls-media.sndcdn.com") || lowerUrl.includes("cf-hls-opus.sndcdn.com")) {
       return "MEDIA_SEGMENT";
     }
     if (lowerUrl.startsWith("blob:")) {
@@ -291,18 +326,29 @@
     }
     if (isSoundCloud) {
       const scTitleElem = document.querySelector(
-        '.playbackSoundBadge__titleLink, [data-testid="track-title"], .soundTitle__title'
+        '.playbackSoundBadge__titleLink, a.playbackSoundBadge__title, .playbackSoundBadge__titleContextContainer a, [data-testid="track-title"], h1.soundTitle__title, .soundTitle__title'
       );
       let title = scTitleElem?.getAttribute("title") || scTitleElem?.textContent?.trim();
       const scArtistElem = document.querySelector(
-        '.playbackSoundBadge__lightLink, .playbackSoundBadge__titleContextContainer a, .soundTitle__username, [data-testid="track-artist"]'
+        '.playbackSoundBadge__lightLink, .playbackSoundBadge__titleContextContainer a, .soundTitle__usernameHero a, .soundTitle__username, [data-testid="track-artist"]'
       );
-      const artist = scArtistElem?.getAttribute("title") || scArtistElem?.textContent?.trim() || void 0;
+      let artist = scArtistElem?.getAttribute("title") || scArtistElem?.textContent?.trim() || void 0;
+      const docParsed = parseSoundCloudDocTitle(document.title);
+      if (!title && docParsed.title) {
+        title = docParsed.title;
+      }
+      if (!artist && docParsed.artist) {
+        artist = docParsed.artist;
+      }
       if (!title) {
         const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute("content");
-        title = ogTitle || document.title.replace("Stream ", "").replace("Listen to ", "").replace("on SoundCloud", "").trim();
+        if (ogTitle) {
+          const ogParsed = parseSoundCloudDocTitle(ogTitle);
+          title = ogParsed.title || ogTitle;
+          if (!artist && ogParsed.artist) artist = ogParsed.artist;
+        }
       }
-      return { title: title || "SoundCloud Track", artist };
+      return { title: title || "SoundCloud Audio", artist };
     }
     const explicitTitle = element.getAttribute("title") || element.getAttribute("aria-label") || element.getAttribute("data-title") || element.getAttribute("data-track-name");
     const explicitArtist = element.getAttribute("data-artist") || element.getAttribute("data-creator") || element.getAttribute("data-author");
@@ -359,14 +405,25 @@
       if (dlHref && dlHref.startsWith("http") && !dlHref.includes("javascript:")) {
         downloadable = true;
         sourceType = "DIRECT_FILE";
-        downloadReason = "Ph\xE1t hi\u1EC7n li\xEAn k\u1EBFt t\u1EA3i ch\xEDnh th\u1EE9c t\u1EEB t\xE1c gi\u1EA3 SoundCloud";
+        downloadReason = "Li\xEAn k\u1EBFt t\u1EA3i ch\xEDnh th\u1EE9c t\u1EEB t\xE1c gi\u1EA3 SoundCloud";
         src = dlHref;
       } else {
-        mediaType = "stream";
-        sourceType = "STREAMING_MEDIA";
-        streamingProtocol = "HLS / SoundCloud Adaptive Stream";
-        downloadable = false;
-        downloadReason = "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn SoundCloud, t\xE1c gi\u1EA3 ch\u01B0a m\u1EDF t\u1EA3i tr\u1EF1c ti\u1EBFp";
+        const perfAudio = performance.getEntriesByType("resource").find((r) => {
+          const name = r.name.toLowerCase();
+          return name.includes("sndcdn.com") && !name.includes("cf-hls-") && !name.includes(".m3u8") && (name.includes("/preview/") || name.includes(".128.mp3") || name.includes(".128.m4a") || name.includes(".128.aac"));
+        });
+        if (perfAudio && perfAudio.name) {
+          src = perfAudio.name;
+          downloadable = true;
+          sourceType = "DIRECT_FILE";
+          downloadReason = "T\u1EC7p \xE2m thanh tr\u1EF1c ti\u1EBFp t\u1EEB SoundCloud";
+        } else {
+          mediaType = "stream";
+          sourceType = "STREAMING_MEDIA";
+          streamingProtocol = "HLS / SoundCloud Adaptive Stream";
+          downloadable = false;
+          downloadReason = "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn \u0111a ph\xE2n \u0111o\u1EA1n (t\xE1c gi\u1EA3 ch\u01B0a m\u1EDF t\u1EA3i tr\u1EF1c ti\u1EBFp)";
+        }
       }
     } else if (src && isDirectAudioUrl(src)) {
       downloadable = true;
@@ -453,7 +510,12 @@
       resources.forEach((res) => {
         const name = res.name;
         if (!name || !name.startsWith("http")) return;
+        const lowerName = name.toLowerCase();
+        if (lowerName.includes("cf-hls-media.sndcdn.com") || lowerName.includes("cf-hls-opus.sndcdn.com") || lowerName.endsWith(".ts") || lowerName.endsWith(".m4s") || lowerName.includes("/segment")) {
+          return;
+        }
         const sourceType = determineSourceType(name);
+        const { title, artist } = extractMediaMetadata(document.body);
         if (sourceType === "DIRECT_FILE" && isDirectAudioUrl(name)) {
           if (!mediaRegistry.has(name)) {
             const item = createDetectedMediaItem({
@@ -461,6 +523,8 @@
               source: "performance-resource",
               pageUrl: window.location.href,
               tabId: 0,
+              title,
+              artist,
               sourceType: "DIRECT_FILE",
               downloadable: true,
               downloadReason: "T\xE0i nguy\xEAn \xE2m thanh tr\u1EF1c ti\u1EBFp ph\xE1t hi\u1EC7n qua m\u1EA1ng"
@@ -468,12 +532,15 @@
             sendMediaToBackground(item);
           }
         } else if (sourceType === "PLAYLIST") {
-          if (!mediaRegistry.has(name)) {
+          const hasActiveMedia = Array.from(mediaRegistry.values()).some((i) => i.status === "PLAYING");
+          if (!hasActiveMedia && !mediaRegistry.has(name)) {
             const item = createDetectedMediaItem({
               url: name,
               source: "hls-manifest",
               pageUrl: window.location.href,
               tabId: 0,
+              title,
+              artist,
               sourceType: "PLAYLIST",
               format: name.includes(".m3u8") ? "hls" : "dash",
               downloadable: false,

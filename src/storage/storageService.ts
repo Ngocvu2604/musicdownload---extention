@@ -95,24 +95,45 @@ class StorageService {
       const items = await this.getTabAudio(item.tabId);
 
       // Check if already detected (deduplicate)
+      // Only match on title if it's not a generic placeholder
+      const isGenericTitle =
+        !item.title ||
+        item.title === 'SoundCloud Track' ||
+        item.title === 'YouTube Video Media' ||
+        item.title === 'Web Audio';
+
       const existingIndex = items.findIndex(
         (i) =>
           i.id === item.id ||
           (item.mediaUrl && i.mediaUrl === item.mediaUrl) ||
-          (i.title === item.title && i.website === item.website)
+          (!isGenericTitle && i.title.toLowerCase() === item.title.toLowerCase() && i.website === item.website)
       );
 
       if (existingIndex >= 0) {
+        const existing = items[existingIndex];
+        const hasBetterTitle =
+          item.title &&
+          item.title !== 'SoundCloud Track' &&
+          item.title !== 'YouTube Video Media' &&
+          item.title !== 'Web Audio';
+
         // Merge attributes and update live playback status
         items[existingIndex] = {
-          ...items[existingIndex],
-          status: item.status || items[existingIndex].status,
-          currentTime: item.currentTime ?? items[existingIndex].currentTime,
-          duration: item.duration ?? items[existingIndex].duration,
-          size: item.size ?? items[existingIndex].size,
-          mediaUrl: item.mediaUrl || items[existingIndex].mediaUrl,
-          downloadable: item.downloadable ?? items[existingIndex].downloadable,
-          downloadReason: item.downloadReason || items[existingIndex].downloadReason,
+          ...existing,
+          title: hasBetterTitle ? item.title : existing.title,
+          artist: item.artist || existing.artist,
+          filename: hasBetterTitle ? item.filename : existing.filename,
+          format: item.format !== 'unknown' ? item.format : existing.format,
+          sourceType: item.sourceType !== 'UNKNOWN' ? item.sourceType : existing.sourceType,
+          status: item.status !== 'UNKNOWN' ? item.status : existing.status,
+          downloadStatus: item.downloadStatus || existing.downloadStatus,
+          currentTime: item.currentTime ?? existing.currentTime,
+          duration: item.duration ?? existing.duration,
+          size: (item.size && item.size > (existing.size || 0)) ? item.size : existing.size,
+          mediaUrl: (item.mediaUrl && !item.mediaUrl.startsWith('blob:')) ? item.mediaUrl : (existing.mediaUrl || item.mediaUrl),
+          downloadable: item.downloadable !== undefined ? item.downloadable : existing.downloadable,
+          downloadReason: item.downloadReason || existing.downloadReason,
+          streamingProtocol: item.streamingProtocol || existing.streamingProtocol,
           updatedAt: Date.now(),
         };
         await this.setTabAudio(item.tabId, items);

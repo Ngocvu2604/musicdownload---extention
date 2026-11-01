@@ -111,9 +111,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ url, title, onClose }) =
       </div>
 
       {hasError ? (
-        <div className="flex items-center gap-1.5 text-[11px] text-brand py-1">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span>Không thể nghe thử luồng này (do bảo vệ CORS). Bạn vẫn có thể tải về!</span>
+        <div className="flex items-center gap-1.5 text-[11px] text-content-secondary py-1">
+          <AlertCircle className="w-3.5 h-3.5 text-brand shrink-0" />
+          <span>Không thể nghe thử luồng này do chính sách bảo vệ trang web (CORS).</span>
         </div>
       ) : (
         <>

@@ -169,23 +169,96 @@ export function getExtensionFromUrl(url: string): string {
 }
 
 /**
+ * Parse track title and artist from SoundCloud document/page title
+ */
+export function parseSoundCloudDocTitle(rawDocTitle: string): { title?: string; artist?: string } {
+  if (!rawDocTitle) return {};
+  let clean = rawDocTitle.trim();
+
+  // Strip trailing site identifiers
+  clean = clean.replace(/\s*\|\s*Listen online for free on SoundCloud.*$/i, '');
+  clean = clean.replace(/\s*\|\s*Free Listening on SoundCloud.*$/i, '');
+  clean = clean.replace(/\s*\|\s*SoundCloud.*$/i, '');
+  clean = clean.replace(/\s*on SoundCloud.*$/i, '');
+  clean = clean.replace(/^Stream\s+/i, '');
+  clean = clean.replace(/^Listen to\s+/i, '');
+  clean = clean.trim();
+
+  // Pattern: "Song by Artist"
+  const byMatch = clean.match(/^(.+?)\s+by\s+(.+)$/i);
+  if (byMatch && byMatch[1] && byMatch[2]) {
+    return { title: byMatch[1].trim(), artist: byMatch[2].trim() };
+  }
+
+  // Pattern: "Artist - Song"
+  const dashMatch = clean.match(/^(.+?)\s*[-–—]\s*(.+)$/);
+  if (dashMatch && dashMatch[1] && dashMatch[2]) {
+    return { artist: dashMatch[1].trim(), title: dashMatch[2].trim() };
+  }
+
+  if (clean && clean.toLowerCase() !== 'soundcloud') {
+    return { title: clean };
+  }
+
+  return {};
+}
+
+/**
+ * Parse title and artist from a browser tab title and URL
+ */
+export function parseTitleAndArtistFromTab(tabTitle: string, tabUrl: string): { title: string; artist?: string } {
+  const domain = getDomainFromUrl(tabUrl);
+
+  if (domain.includes('soundcloud.com')) {
+    const scParsed = parseSoundCloudDocTitle(tabTitle);
+    if (scParsed.title) {
+      return { title: scParsed.title, artist: scParsed.artist };
+    }
+  }
+
+  if (domain.includes('youtube.com')) {
+    const ytTitle = tabTitle.replace(/\s*-\s*YouTube.*$/i, '').trim();
+    if (ytTitle) return { title: ytTitle };
+  }
+
+  const generalTitle = tabTitle.replace(/[-|•].*$/, '').trim();
+  return { title: generalTitle || `${domain} Media` };
+}
+
+/**
  * Extract format enum from mime type or extension
+ * Note: Authoritative MIME type takes strict precedence over URL path!
  */
 export function getFormatFromMimeOrExt(mimeType?: string, ext?: string): AudioFormat {
   const mime = (mimeType || '').toLowerCase();
   const e = (ext || '').toLowerCase().replace(/^\./, '');
 
-  if (e === 'mp3' || mime.includes('audio/mpeg') || mime.includes('audio/mp3')) return 'mp3';
-  if (e === 'wav' || mime.includes('audio/wav') || mime.includes('audio/x-wav')) return 'wav';
-  if (e === 'flac' || mime.includes('audio/flac') || mime.includes('audio/x-flac')) return 'flac';
-  if (e === 'm4a' || mime.includes('audio/m4a') || mime.includes('audio/x-m4a')) return 'm4a';
-  if (e === 'aac' || mime.includes('audio/aac')) return 'aac';
-  if (e === 'ogg' || mime.includes('audio/ogg') || mime.includes('application/ogg')) return 'ogg';
-  if (e === 'opus' || mime.includes('audio/opus')) return 'opus';
-  if (e === 'm3u8' || mime.includes('application/vnd.apple.mpegurl') || mime.includes('application/x-mpegurl')) return 'hls';
-  if (e === 'mpd' || mime.includes('application/dash+xml')) return 'dash';
-  if (e === 'mp4' || mime.includes('video/mp4') || mime.includes('audio/mp4')) return 'mp4';
-  if (e === 'webm' || mime.includes('audio/webm') || mime.includes('video/webm')) return 'webm';
+  // 1. Authoritative MIME type check FIRST (determines actual audio encoding)
+  if (mime.includes('audio/mpeg') || mime.includes('audio/mp3')) return 'mp3';
+  if (mime.includes('audio/m4a') || mime.includes('audio/x-m4a')) return 'm4a';
+  if (mime.includes('audio/aac') || mime.includes('audio/x-aac')) return 'aac';
+  if (mime.includes('audio/wav') || mime.includes('audio/x-wav')) return 'wav';
+  if (mime.includes('audio/flac') || mime.includes('audio/x-flac')) return 'flac';
+  if (mime.includes('audio/ogg') || mime.includes('application/ogg')) return 'ogg';
+  if (mime.includes('audio/opus')) return 'opus';
+  if (mime.includes('audio/webm') || mime.includes('video/webm')) return 'webm';
+  if (mime.includes('audio/mp4')) return 'm4a';
+  if (mime.includes('video/mp4')) return 'mp4';
+  if (mime.includes('application/vnd.apple.mpegurl') || mime.includes('application/x-mpegurl')) return 'hls';
+  if (mime.includes('application/dash+xml')) return 'dash';
+
+  // 2. Extension check if MIME is missing or generic (e.g. application/octet-stream)
+  if (e === 'mp3') return 'mp3';
+  if (e === 'm4a') return 'm4a';
+  if (e === 'aac') return 'aac';
+  if (e === 'wav') return 'wav';
+  if (e === 'flac') return 'flac';
+  if (e === 'ogg') return 'ogg';
+  if (e === 'opus') return 'opus';
+  if (e === 'm3u8') return 'hls';
+  if (e === 'mpd') return 'dash';
+  if (e === 'mp4') return 'mp4';
+  if (e === 'webm') return 'webm';
 
   return 'unknown';
 }

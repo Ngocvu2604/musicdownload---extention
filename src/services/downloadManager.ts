@@ -40,6 +40,15 @@ export class DownloadManager {
       if (validation.contentLength) {
         validatedSize = validation.contentLength;
       }
+
+      // Synchronize format extension: If server returns M4A/AAC/MP3, ensure filename extension matches!
+      if (validation.suggestedFormat && validation.suggestedFormat !== 'unknown') {
+        const trueFormat = validation.suggestedFormat;
+        const currentExt = getExtensionFromUrl(finalFilename);
+        if (currentExt && currentExt !== trueFormat) {
+          finalFilename = finalFilename.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${trueFormat}`);
+        }
+      }
     }
 
     const cleanName = cleanFilename(finalFilename);

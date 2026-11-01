@@ -1,6 +1,7 @@
 import { storageService } from '../storage/storageService';
 import { downloadManager } from '../services/downloadManager';
 import { createDetectedMediaItem, isAudioMimeType, isDirectAudioUrl } from '../utils/audioDetector';
+import { parseTitleAndArtistFromTab, getFormatFromMimeOrExt, getExtensionFromUrl } from '../utils/formatters';
 import { ExtensionMessage, HistoryItem, DetectedMedia } from '../types/audio';
 
 console.log('[AudioFlow] Background Service Worker initialized.');
@@ -77,26 +78,52 @@ chrome.webRequest.onHeadersReceived.addListener(
         const isAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url);
         if (!isAudio) return;
 
+        // Ignore tiny HLS / DASH stream chunks (3-second fragments) that clutter the list
+        const lowerUrl = details.url.toLowerCase();
+        const isHlsSegment =
+          lowerUrl.includes('cf-hls-media.sndcdn.com') ||
+          lowerUrl.includes('cf-hls-opus.sndcdn.com') ||
+          lowerUrl.endsWith('.ts') ||
+          lowerUrl.endsWith('.m4s') ||
+          lowerUrl.includes('/segment') ||
+          lowerUrl.includes('-frag') ||
+          lowerUrl.includes('playlist.m3u8');
+
+        if (isHlsSegment && contentLength > 0 && contentLength < 350000) {
+          // Skip 50KB HLS chunks - they are not full songs
+          return;
+        }
+
         const minBytes = (settings.minFileSizeKB || 0) * 1024;
         if (contentLength > 0 && contentLength < minBytes) {
           return;
         }
 
         let pageUrl = details.initiator || details.url;
+        let tabTitle = '';
         try {
           const tab = await chrome.tabs.get(details.tabId);
           if (tab && tab.url) {
             pageUrl = tab.url;
           }
+          if (tab && tab.title) {
+            tabTitle = tab.title;
+          }
         } catch {
           // Tab not accessible
         }
+
+        const { title, artist } = parseTitleAndArtistFromTab(tabTitle, pageUrl);
+        const format = getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url));
 
         const item = createDetectedMediaItem({
           url: details.url,
           source: 'network-request',
           pageUrl,
           tabId: details.tabId,
+          title,
+          artist,
+          format,
           mimeType: contentType,
           size: contentLength > 0 ? contentLength : undefined,
           downloadable: true,

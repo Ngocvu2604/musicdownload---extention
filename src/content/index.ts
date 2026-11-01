@@ -4,7 +4,7 @@ import {
   determineSourceType,
 } from '../utils/audioDetector';
 import { DetectedMedia, MediaPlaybackStatus, AudioFormat } from '../types/audio';
-import { getFormatFromMimeOrExt, getExtensionFromUrl } from '../utils/formatters';
+import { getFormatFromMimeOrExt, getExtensionFromUrl, parseSoundCloudDocTitle } from '../utils/formatters';
 
 console.log('[AudioFlow V2] Advanced Content Script initialized on:', window.location.href);
 
@@ -72,25 +72,38 @@ function extractMediaMetadata(element: HTMLElement): { title: string; artist?: s
 
   // 2. SoundCloud metadata extraction (Track & Artist)
   if (isSoundCloud) {
-    // Current playing track title
+    // Current playing track title in player bar or page
     const scTitleElem = document.querySelector(
-      '.playbackSoundBadge__titleLink, [data-testid="track-title"], .soundTitle__title'
+      '.playbackSoundBadge__titleLink, a.playbackSoundBadge__title, .playbackSoundBadge__titleContextContainer a, [data-testid="track-title"], h1.soundTitle__title, .soundTitle__title'
     );
     let title = scTitleElem?.getAttribute('title') || scTitleElem?.textContent?.trim();
 
-    // Current playing track artist
+    // Current playing track artist in player bar or page
     const scArtistElem = document.querySelector(
-      '.playbackSoundBadge__lightLink, .playbackSoundBadge__titleContextContainer a, .soundTitle__username, [data-testid="track-artist"]'
+      '.playbackSoundBadge__lightLink, .playbackSoundBadge__titleContextContainer a, .soundTitle__usernameHero a, .soundTitle__username, [data-testid="track-artist"]'
     );
-    const artist = scArtistElem?.getAttribute('title') || scArtistElem?.textContent?.trim() || undefined;
+    let artist = scArtistElem?.getAttribute('title') || scArtistElem?.textContent?.trim() || undefined;
 
-    if (!title) {
-      // Fallback to OpenGraph or document title
-      const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
-      title = ogTitle || document.title.replace('Stream ', '').replace('Listen to ', '').replace('on SoundCloud', '').trim();
+    // Document title parser (authoritative on SoundCloud tab)
+    const docParsed = parseSoundCloudDocTitle(document.title);
+    if (!title && docParsed.title) {
+      title = docParsed.title;
+    }
+    if (!artist && docParsed.artist) {
+      artist = docParsed.artist;
     }
 
-    return { title: title || 'SoundCloud Track', artist };
+    // OpenGraph meta tags fallback
+    if (!title) {
+      const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
+      if (ogTitle) {
+        const ogParsed = parseSoundCloudDocTitle(ogTitle);
+        title = ogParsed.title || ogTitle;
+        if (!artist && ogParsed.artist) artist = ogParsed.artist;
+      }
+    }
+
+    return { title: title || 'SoundCloud Audio', artist };
   }
 
   // 3. Explicit HTML attributes
@@ -167,8 +180,8 @@ function inspectMediaElement(element: HTMLMediaElement) {
     downloadable = false;
     downloadReason = 'Nguồn phát trực tuyến YouTube (DASH/Blob), tuân thủ chính sách bản quyền';
   } else if (isSoundCloud) {
-    // Check if SoundCloud track has an official free download button on the page
-    const scDownloadBtn = document.querySelector(
+    // 1. Check if SoundCloud track has an official free download button on the page
+    const scDownloadBtn = document.querySelector<HTMLAnchorElement>(
       '.sc-button-download, a[href*="download"], a[title*="Download"], button[title*="Download"]'
     );
     const dlHref = scDownloadBtn?.getAttribute('href');
@@ -176,14 +189,33 @@ function inspectMediaElement(element: HTMLMediaElement) {
     if (dlHref && dlHref.startsWith('http') && !dlHref.includes('javascript:')) {
       downloadable = true;
       sourceType = 'DIRECT_FILE';
-      downloadReason = 'Phát hiện liên kết tải chính thức từ tác giả SoundCloud';
+      downloadReason = 'Liên kết tải chính thức từ tác giả SoundCloud';
       src = dlHref;
     } else {
-      mediaType = 'stream';
-      sourceType = 'STREAMING_MEDIA';
-      streamingProtocol = 'HLS / SoundCloud Adaptive Stream';
-      downloadable = false;
-      downloadReason = 'Nguồn phát trực tuyến SoundCloud, tác giả chưa mở tải trực tiếp';
+      // 2. Check for progressive audio stream in performance timing (complete audio files)
+      const perfAudio = performance.getEntriesByType('resource').find((r) => {
+        const name = r.name.toLowerCase();
+        return (
+          name.includes('sndcdn.com') &&
+          !name.includes('cf-hls-') &&
+          !name.includes('.m3u8') &&
+          (name.includes('/preview/') || name.includes('.128.mp3') || name.includes('.128.m4a') || name.includes('.128.aac'))
+        );
+      });
+
+      if (perfAudio && perfAudio.name) {
+        src = perfAudio.name;
+        downloadable = true;
+        sourceType = 'DIRECT_FILE';
+        downloadReason = 'Tệp âm thanh trực tiếp từ SoundCloud';
+      } else {
+        // 3. Streaming media via Blob/MSE
+        mediaType = 'stream';
+        sourceType = 'STREAMING_MEDIA';
+        streamingProtocol = 'HLS / SoundCloud Adaptive Stream';
+        downloadable = false;
+        downloadReason = 'Nguồn phát trực tuyến đa phân đoạn (tác giả chưa mở tải trực tiếp)';
+      }
     }
   } else if (src && isDirectAudioUrl(src)) {
     downloadable = true;
@@ -298,7 +330,20 @@ function scanPerformanceResources() {
       const name = res.name;
       if (!name || !name.startsWith('http')) return;
 
+      const lowerName = name.toLowerCase();
+      // Skip tiny HLS fragments / chunk streams
+      if (
+        lowerName.includes('cf-hls-media.sndcdn.com') ||
+        lowerName.includes('cf-hls-opus.sndcdn.com') ||
+        lowerName.endsWith('.ts') ||
+        lowerName.endsWith('.m4s') ||
+        lowerName.includes('/segment')
+      ) {
+        return;
+      }
+
       const sourceType = determineSourceType(name);
+      const { title, artist } = extractMediaMetadata(document.body);
 
       if (sourceType === 'DIRECT_FILE' && isDirectAudioUrl(name)) {
         if (!mediaRegistry.has(name)) {
@@ -307,6 +352,8 @@ function scanPerformanceResources() {
             source: 'performance-resource',
             pageUrl: window.location.href,
             tabId: 0,
+            title,
+            artist,
             sourceType: 'DIRECT_FILE',
             downloadable: true,
             downloadReason: 'Tài nguyên âm thanh trực tiếp phát hiện qua mạng',
@@ -314,12 +361,16 @@ function scanPerformanceResources() {
           sendMediaToBackground(item);
         }
       } else if (sourceType === 'PLAYLIST') {
-        if (!mediaRegistry.has(name)) {
+        // Only track playlist manifest if no active media element is playing
+        const hasActiveMedia = Array.from(mediaRegistry.values()).some((i) => i.status === 'PLAYING');
+        if (!hasActiveMedia && !mediaRegistry.has(name)) {
           const item = createDetectedMediaItem({
             url: name,
             source: 'hls-manifest',
             pageUrl: window.location.href,
             tabId: 0,
+            title,
+            artist,
             sourceType: 'PLAYLIST',
             format: name.includes('.m3u8') ? 'hls' : 'dash',
             downloadable: false,
