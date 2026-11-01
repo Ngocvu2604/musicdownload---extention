@@ -15,6 +15,8 @@ export class SourceValidator {
       };
     }
 
+    const isHlsPlaylist = url.toLowerCase().includes('.m3u8') || url.toLowerCase().includes('/playlist');
+
     if (isStreamChunkOrFragment(url)) {
       return {
         isValid: false,
@@ -120,6 +122,17 @@ export class SourceValidator {
       // Check Content-Type
       const rawContentType = response.headers.get('content-type') || '';
       const contentType = rawContentType.toLowerCase();
+
+      // If HLS playlist (.m3u8), text/plain or mpegurl is expected and valid!
+      if (isHlsPlaylist) {
+        return {
+          isValid: true,
+          isAudioOrVideo: true,
+          contentType: contentType || 'application/vnd.apple.mpegurl',
+          httpStatus: status,
+          suggestedFormat: 'm4a',
+        };
+      }
 
       // Detect HTML / JSON error responses disguised as audio files!
       if (

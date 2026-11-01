@@ -72,38 +72,57 @@ function extractMediaMetadata(element: HTMLElement): { title: string; artist?: s
 
   // 2. SoundCloud metadata extraction (Track & Artist)
   if (isSoundCloud) {
-    // Current playing track title in player bar or page
-    const scTitleElem = document.querySelector(
-      '.playbackSoundBadge__titleLink, a.playbackSoundBadge__title, .playbackSoundBadge__titleContextContainer a, [data-testid="track-title"], h1.soundTitle__title, .soundTitle__title'
+    // Current playing track title: Check track page main heading first, then player badge link
+    const trackPageHeading = document.querySelector(
+      'h1.soundTitle__title span, h1.soundTitle__title, .soundTitle__title span, .soundTitle__title, [data-testid="track-title"]'
     );
-    let title = scTitleElem?.getAttribute('title') || scTitleElem?.textContent?.trim();
+    const playerBadgeTitle = document.querySelector(
+      'a.playbackSoundBadge__titleLink, .playbackSoundBadge__titleLink span, .playbackSoundBadge__titleLink, a.playbackSoundBadge__title'
+    );
+    let title =
+      trackPageHeading?.textContent?.trim() ||
+      playerBadgeTitle?.getAttribute('title') ||
+      playerBadgeTitle?.textContent?.trim();
 
-    // Current playing track artist in player bar or page
-    const scArtistElem = document.querySelector(
-      '.playbackSoundBadge__lightLink, .playbackSoundBadge__titleContextContainer a, .soundTitle__usernameHero a, .soundTitle__username, [data-testid="track-artist"]'
+    // Current playing track artist: Check artist link in page hero, then player badge artist link
+    const trackPageArtist = document.querySelector(
+      '.soundTitle__usernameHero a, .soundTitle__username a, .soundTitle__username, [data-testid="track-artist"]'
     );
-    let artist = scArtistElem?.getAttribute('title') || scArtistElem?.textContent?.trim() || undefined;
+    const playerBadgeArtist = document.querySelector(
+      'a.playbackSoundBadge__lightLink, .playbackSoundBadge__lightLink'
+    );
+    let artist =
+      trackPageArtist?.textContent?.trim() ||
+      playerBadgeArtist?.getAttribute('title') ||
+      playerBadgeArtist?.textContent?.trim() ||
+      undefined;
 
     // Document title parser (authoritative on SoundCloud tab)
     const docParsed = parseSoundCloudDocTitle(document.title);
-    if (!title && docParsed.title) {
-      title = docParsed.title;
+    if (!title || title.toLowerCase() === (artist || '').toLowerCase() || title.toLowerCase() === 'soundcloud') {
+      if (docParsed.title) {
+        title = docParsed.title;
+      }
     }
     if (!artist && docParsed.artist) {
       artist = docParsed.artist;
     }
 
     // OpenGraph meta tags fallback
-    if (!title) {
+    if (!title || title.toLowerCase() === (artist || '').toLowerCase()) {
       const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
       if (ogTitle) {
         const ogParsed = parseSoundCloudDocTitle(ogTitle);
-        title = ogParsed.title || ogTitle;
+        if (ogParsed.title) title = ogParsed.title;
         if (!artist && ogParsed.artist) artist = ogParsed.artist;
       }
     }
 
-    return { title: title || 'SoundCloud Audio', artist };
+    if (title) {
+      title = title.replace(/^Stream\s+/i, '').replace(/\s+on SoundCloud$/i, '').trim();
+    }
+
+    return { title: title || 'SoundCloud Track', artist };
   }
 
   // 3. Explicit HTML attributes
@@ -209,12 +228,35 @@ function inspectMediaElement(element: HTMLMediaElement) {
         sourceType = 'DIRECT_FILE';
         downloadReason = 'Tệp âm thanh trực tiếp từ SoundCloud';
       } else {
-        // 3. Streaming media via Blob/MSE
-        mediaType = 'stream';
-        sourceType = 'STREAMING_MEDIA';
-        streamingProtocol = 'HLS / SoundCloud Adaptive Stream';
-        downloadable = false;
-        downloadReason = 'Nguồn phát trực tuyến đa phân đoạn (tác giả chưa mở tải trực tiếp)';
+        // 3. HLS Adaptive Stream (SoundCloud standard audio stream)
+        const perfHls = performance.getEntriesByType('resource').find((r) => {
+          const name = r.name.toLowerCase();
+          return (
+            name.includes('.m3u8') ||
+            name.includes('cf-hls-media.sndcdn.com') ||
+            name.includes('playback.media-streaming.soundcloud.cloud')
+          );
+        });
+
+        if (perfHls && perfHls.name) {
+          let hlsUrl = perfHls.name;
+          if (!hlsUrl.includes('.m3u8')) {
+            hlsUrl = hlsUrl.substring(0, hlsUrl.lastIndexOf('/') + 1) + 'playlist.m3u8';
+          }
+          src = hlsUrl;
+          mediaType = 'audio';
+          sourceType = 'PLAYLIST';
+          format = 'm4a';
+          streamingProtocol = 'HLS Stream (AAC)';
+          downloadable = true;
+          downloadReason = 'Sẵn sàng tải bài hát đầy đủ (Ghép từ luồng HLS chất lượng cao)';
+        } else {
+          mediaType = 'stream';
+          sourceType = 'STREAMING_MEDIA';
+          streamingProtocol = 'HLS Adaptive Stream';
+          downloadable = false;
+          downloadReason = 'Đang phát âm thanh trực tuyến trên SoundCloud';
+        }
       }
     }
   } else if (src && isDirectAudioUrl(src)) {
@@ -361,9 +403,7 @@ function scanPerformanceResources() {
           sendMediaToBackground(item);
         }
       } else if (sourceType === 'PLAYLIST') {
-        // Only track playlist manifest if no active media element is playing
-        const hasActiveMedia = Array.from(mediaRegistry.values()).some((i) => i.status === 'PLAYING');
-        if (!hasActiveMedia && !mediaRegistry.has(name)) {
+        if (!mediaRegistry.has(name)) {
           const item = createDetectedMediaItem({
             url: name,
             source: 'hls-manifest',
@@ -372,9 +412,10 @@ function scanPerformanceResources() {
             title,
             artist,
             sourceType: 'PLAYLIST',
-            format: name.includes('.m3u8') ? 'hls' : 'dash',
-            downloadable: false,
-            downloadReason: 'Danh sách phát đa phân đoạn (HLS/DASH Playlist)',
+            format: 'm4a',
+            downloadable: true,
+            downloadReason: 'Sẵn sàng tải bài hát đầy đủ (Ghép từ luồng HLS chất lượng cao)',
+            streamingProtocol: 'HLS Stream (AAC)',
           });
           sendMediaToBackground(item);
         }

@@ -92,22 +92,30 @@ var StorageService = class {
       );
       if (existingIndex >= 0) {
         const existing = items[existingIndex];
-        const hasBetterTitle = item.title && item.title !== "SoundCloud Track" && item.title !== "YouTube Video Media" && item.title !== "Web Audio";
+        const isExistingTitleInvalid = !existing.title || existing.title === "SoundCloud Track" || existing.title === "YouTube Video Media" || existing.title === "Web Audio" || existing.artist && existing.title.toLowerCase() === existing.artist.toLowerCase();
+        const hasBetterTitle = item.title && item.title !== "SoundCloud Track" && item.title !== "YouTube Video Media" && item.title !== "Web Audio" && (isExistingTitleInvalid || item.artist && item.title.toLowerCase() !== item.artist.toLowerCase());
+        const isDownloadable = Boolean(existing.downloadable || item.downloadable);
+        let bestMediaUrl = existing.mediaUrl;
+        if (item.mediaUrl && !item.mediaUrl.startsWith("blob:") && !item.mediaUrl.startsWith("data:")) {
+          bestMediaUrl = item.mediaUrl;
+        } else if (!bestMediaUrl) {
+          bestMediaUrl = item.mediaUrl;
+        }
         items[existingIndex] = {
           ...existing,
           title: hasBetterTitle ? item.title : existing.title,
           artist: item.artist || existing.artist,
           filename: hasBetterTitle ? item.filename : existing.filename,
-          format: item.format !== "unknown" ? item.format : existing.format,
+          format: item.format !== "unknown" && item.format !== "hls" ? item.format : existing.format,
           sourceType: item.sourceType !== "UNKNOWN" ? item.sourceType : existing.sourceType,
           status: item.status !== "UNKNOWN" ? item.status : existing.status,
-          downloadStatus: item.downloadStatus || existing.downloadStatus,
+          downloadStatus: isDownloadable ? "READY_TO_DOWNLOAD" : item.downloadStatus || existing.downloadStatus,
           currentTime: item.currentTime ?? existing.currentTime,
           duration: item.duration ?? existing.duration,
           size: item.size && item.size > (existing.size || 0) ? item.size : existing.size,
-          mediaUrl: item.mediaUrl && !item.mediaUrl.startsWith("blob:") ? item.mediaUrl : existing.mediaUrl || item.mediaUrl,
-          downloadable: item.downloadable !== void 0 ? item.downloadable : existing.downloadable,
-          downloadReason: item.downloadReason || existing.downloadReason,
+          mediaUrl: bestMediaUrl,
+          downloadable: isDownloadable,
+          downloadReason: isDownloadable ? item.downloadReason || existing.downloadReason || "S\u1EB5n s\xE0ng t\u1EA3i b\xE0i h\xE1t \u0111\u1EA7y \u0111\u1EE7" : item.downloadReason || existing.downloadReason,
           streamingProtocol: item.streamingProtocol || existing.streamingProtocol,
           updatedAt: Date.now()
         };
@@ -439,6 +447,9 @@ function generateMediaId(url, pageUrl, titleHint) {
 function isStreamChunkOrFragment(rawUrl, sizeBytes) {
   if (!rawUrl) return false;
   const lower = rawUrl.toLowerCase();
+  if (lower.includes(".m3u8") || lower.includes("/playlist") || lower.includes(".mpd")) {
+    return false;
+  }
   if (lower.includes("playback.media-streaming.soundcloud.cloud") || lower.includes("cf-hls-media.sndcdn.com") || lower.includes("cf-hls-opus.sndcdn.com") || lower.includes("googlevideo.com/videoplayback")) {
     return true;
   }
@@ -536,7 +547,7 @@ function createDetectedMediaItem(params) {
       title = `${domain} Media`;
     }
   }
-  const finalExt = format !== "unknown" ? format : "mp3";
+  const finalExt = format !== "unknown" && format !== "hls" && format !== "dash" ? format : "m4a";
   const filename = buildSanitizedFilename(title, artist, finalExt);
   let downloadable = false;
   let downloadReason = "";
@@ -561,10 +572,14 @@ function createDetectedMediaItem(params) {
     downloadable = false;
     downloadStatus = "STREAMING_ONLY";
     downloadReason = "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn (Streaming Media), kh\xF4ng c\xF3 file t\u1EA3i tr\u1EF1c ti\u1EBFp";
-  } else if (sourceType === "PLAYLIST" || sourceType === "MEDIA_SEGMENT") {
+  } else if (sourceType === "PLAYLIST" || url.toLowerCase().includes(".m3u8")) {
+    downloadable = true;
+    downloadStatus = "READY_TO_DOWNLOAD";
+    downloadReason = "S\u1EB5n s\xE0ng t\u1EA3i b\xE0i h\xE1t \u0111\u1EA7y \u0111\u1EE7 (Gh\xE9p t\u1EEB lu\u1ED3ng HLS ch\u1EA5t l\u01B0\u1EE3ng cao)";
+  } else if (sourceType === "MEDIA_SEGMENT") {
     downloadable = false;
     downloadStatus = "STREAMING_ONLY";
-    downloadReason = "Ngu\u1ED3n ph\xE1t qua ph\xE2n \u0111o\u1EA1n / playlist streaming";
+    downloadReason = "Ph\xE2n \u0111o\u1EA1n \xE2m thanh ng\u1EAFn (chunk)";
   } else if (isDirectAudioUrl(url) || url.startsWith("http")) {
     downloadable = true;
     downloadStatus = "READY_TO_DOWNLOAD";
@@ -586,7 +601,7 @@ function createDetectedMediaItem(params) {
     pageUrl,
     mediaUrl: url,
     mediaType,
-    format: format !== "unknown" ? format : "mp3",
+    format: format !== "unknown" && format !== "hls" && format !== "dash" ? format : "m4a",
     sourceType,
     status,
     downloadStatus,
@@ -616,6 +631,7 @@ var SourceValidator = class {
         error: "URL kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c \u0111\u1EC3 tr\u1ED1ng"
       };
     }
+    const isHlsPlaylist = url.toLowerCase().includes(".m3u8") || url.toLowerCase().includes("/playlist");
     if (isStreamChunkOrFragment(url)) {
       return {
         isValid: false,
@@ -706,6 +722,15 @@ var SourceValidator = class {
       }
       const rawContentType = response.headers.get("content-type") || "";
       const contentType = rawContentType.toLowerCase();
+      if (isHlsPlaylist) {
+        return {
+          isValid: true,
+          isAudioOrVideo: true,
+          contentType: contentType || "application/vnd.apple.mpegurl",
+          httpStatus: status,
+          suggestedFormat: "m4a"
+        };
+      }
       if (contentType.includes("text/html") || contentType.includes("application/json") || contentType.includes("text/plain")) {
         return {
           isValid: false,
@@ -742,6 +767,227 @@ var SourceValidator = class {
 };
 var sourceValidator = new SourceValidator();
 
+// src/services/hlsDownloader.ts
+var HlsDownloader = class {
+  /**
+   * Parse an M3U8 playlist content
+   */
+  parsePlaylist(playlistUrl, content) {
+    const lines = content.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    let isMaster = false;
+    let initSegmentUrl = void 0;
+    const segments = [];
+    const variantPlaylists = [];
+    let currentDuration = void 0;
+    let currentByteRange = void 0;
+    let lastByteOffset = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith("#EXT-X-STREAM-INF") || line.startsWith("#EXT-X-MEDIA:TYPE=AUDIO")) {
+        isMaster = true;
+        const uriMatch = line.match(/URI\s*=\s*["']([^"']+)["']/i);
+        if (uriMatch && uriMatch[1]) {
+          try {
+            variantPlaylists.push(new URL(uriMatch[1], playlistUrl).href);
+          } catch {
+            variantPlaylists.push(uriMatch[1]);
+          }
+        }
+        continue;
+      }
+      if (isMaster && !line.startsWith("#")) {
+        try {
+          variantPlaylists.push(new URL(line, playlistUrl).href);
+        } catch {
+          variantPlaylists.push(line);
+        }
+        continue;
+      }
+      if (line.startsWith("#EXT-X-MAP")) {
+        const uriMatch = line.match(/URI\s*=\s*["']?([^"',\s]+)["']?/i);
+        if (uriMatch && uriMatch[1]) {
+          try {
+            initSegmentUrl = new URL(uriMatch[1], playlistUrl).href;
+          } catch {
+            initSegmentUrl = uriMatch[1];
+          }
+        }
+        continue;
+      }
+      if (line.startsWith("#EXTINF:")) {
+        const durMatch = line.match(/#EXTINF:\s*([0-9.]+)/i);
+        if (durMatch && durMatch[1]) {
+          currentDuration = parseFloat(durMatch[1]);
+        }
+        continue;
+      }
+      if (line.startsWith("#EXT-X-BYTERANGE:")) {
+        const rangeMatch = line.match(/#EXT-X-BYTERANGE:\s*(\d+)(?:@(\d+))?/i);
+        if (rangeMatch && rangeMatch[1]) {
+          const length = parseInt(rangeMatch[1], 10);
+          const offset = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : lastByteOffset;
+          currentByteRange = { length, offset };
+          lastByteOffset = offset + length;
+        }
+        continue;
+      }
+      if (!line.startsWith("#")) {
+        try {
+          const segUrl = new URL(line, playlistUrl).href;
+          segments.push({
+            index: segments.length,
+            url: segUrl,
+            duration: currentDuration,
+            byteRange: currentByteRange
+          });
+        } catch {
+        }
+        currentDuration = void 0;
+        currentByteRange = void 0;
+      }
+    }
+    let format = "m4a";
+    let mimeType = "audio/mp4";
+    const testUrl = (initSegmentUrl || (segments[0] ? segments[0].url : "")).toLowerCase();
+    if (testUrl.includes(".mp3")) {
+      format = "mp3";
+      mimeType = "audio/mpeg";
+    } else if (testUrl.includes(".aac")) {
+      format = "aac";
+      mimeType = "audio/aac";
+    } else if (testUrl.includes(".opus")) {
+      format = "opus";
+      mimeType = "audio/opus";
+    } else if (testUrl.includes(".ts")) {
+      format = "ts";
+      mimeType = "audio/mp2t";
+    } else {
+      format = "m4a";
+      mimeType = "audio/mp4";
+    }
+    return {
+      isMaster,
+      initSegmentUrl,
+      segments,
+      format,
+      mimeType,
+      variantPlaylists
+    };
+  }
+  /**
+   * Fetch a single segment with retry logic
+   */
+  async fetchSegmentWithRetry(url, byteRange, retries = 3) {
+    let lastError = null;
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const headers = {};
+        if (byteRange) {
+          headers["Range"] = `bytes=${byteRange.offset}-${byteRange.offset + byteRange.length - 1}`;
+        }
+        const res = await fetch(url, { headers });
+        if (!res.ok && res.status !== 206) {
+          throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        }
+        return await res.arrayBuffer();
+      } catch (err) {
+        lastError = err;
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+      }
+    }
+    throw new Error(`Kh\xF4ng th\u1EC3 t\u1EA3i ph\xE2n \u0111o\u1EA1n sau 3 l\u1EA7n th\u1EED: ${url} (${lastError?.message || "Network error"})`);
+  }
+  /**
+   * Download all segments and stitch them into a complete playable Blob
+   */
+  async downloadAndStitchHls(params) {
+    const { playlistUrl, onProgress } = params;
+    const res = await fetch(playlistUrl);
+    if (!res.ok) {
+      throw new Error(`Kh\xF4ng th\u1EC3 t\u1EA3i danh s\xE1ch ph\xE1t HLS (HTTP ${res.status})`);
+    }
+    const playlistText = await res.text();
+    let info = this.parsePlaylist(playlistUrl, playlistText);
+    if (info.isMaster && info.variantPlaylists && info.variantPlaylists.length > 0) {
+      const childUrl = info.variantPlaylists[0];
+      const childRes = await fetch(childUrl);
+      if (!childRes.ok) {
+        throw new Error(`Kh\xF4ng th\u1EC3 n\u1EA1p lu\u1ED3ng ph\xE1t con t\u1EEB Master Playlist (HTTP ${childRes.status})`);
+      }
+      const childText = await childRes.text();
+      info = this.parsePlaylist(childUrl, childText);
+    }
+    if (info.segments.length === 0) {
+      throw new Error("Danh s\xE1ch ph\xE1t HLS kh\xF4ng ch\u1EE9a ph\xE2n \u0111o\u1EA1n \xE2m thanh n\xE0o");
+    }
+    let initBuffer = null;
+    let totalBytes = 0;
+    if (info.initSegmentUrl) {
+      try {
+        initBuffer = await this.fetchSegmentWithRetry(info.initSegmentUrl);
+        totalBytes += initBuffer.byteLength;
+      } catch (err) {
+        console.warn("[AudioFlow] Warning: could not download init segment:", err);
+      }
+    }
+    const concurrency = 6;
+    const totalSegments = info.segments.length;
+    let nextIndex = 0;
+    let completed = 0;
+    const buffers = new Array(totalSegments);
+    const worker = async () => {
+      while (nextIndex < totalSegments) {
+        const currentIndex = nextIndex++;
+        const segment = info.segments[currentIndex];
+        const segBuffer = await this.fetchSegmentWithRetry(segment.url, segment.byteRange);
+        buffers[currentIndex] = segBuffer;
+        totalBytes += segBuffer.byteLength;
+        completed++;
+        if (onProgress) {
+          const percent = Math.min(99, Math.round(completed / totalSegments * 100));
+          onProgress({
+            percent,
+            current: completed,
+            total: totalSegments,
+            bytes: totalBytes
+          });
+        }
+      }
+    };
+    const workers = Array.from(
+      { length: Math.min(concurrency, totalSegments) },
+      () => worker()
+    );
+    await Promise.all(workers);
+    const allBuffers = [];
+    if (initBuffer) {
+      allBuffers.push(initBuffer);
+    }
+    for (let i = 0; i < totalSegments; i++) {
+      if (buffers[i]) {
+        allBuffers.push(buffers[i]);
+      }
+    }
+    const blob = new Blob(allBuffers, { type: info.mimeType });
+    if (onProgress) {
+      onProgress({
+        percent: 100,
+        current: totalSegments,
+        total: totalSegments,
+        bytes: totalBytes
+      });
+    }
+    return {
+      blob,
+      mimeType: info.mimeType,
+      format: info.format,
+      totalBytes,
+      segmentCount: totalSegments
+    };
+  }
+};
+var hlsDownloader = new HlsDownloader();
+
 // src/services/downloadManager.ts
 var isChromeExtension2 = typeof chrome !== "undefined" && !!chrome.downloads;
 var speedTracker = /* @__PURE__ */ new Map();
@@ -750,6 +996,10 @@ var DownloadManager = class {
    * Start downloading an audio item with smart pre-validation
    */
   async startDownload(params) {
+    const isHls = params.url.toLowerCase().includes(".m3u8") || params.url.toLowerCase().includes("/playlist");
+    if (isHls) {
+      return await this.startHlsDownload(params);
+    }
     const settings = await storageService.getSettings();
     let finalFilename = params.filename;
     let validatedSize = params.size;
@@ -824,6 +1074,138 @@ var DownloadManager = class {
       document.body.removeChild(a);
       const mockId = Date.now();
       return mockId;
+    }
+  }
+  /**
+   * Helper to convert Blob to Base64 Data URL if URL.createObjectURL is restricted
+   */
+  async blobToDataUrl(blob) {
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const len = bytes.byteLength;
+    const chunkSize = 32768;
+    for (let i = 0; i < len; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, Math.min(i + chunkSize, len))));
+    }
+    return `data:${blob.type || "audio/mp4"};base64,${btoa(binary)}`;
+  }
+  /**
+   * Download and assemble an HLS stream into a complete audio file
+   */
+  async startHlsDownload(params) {
+    const settings = await storageService.getSettings();
+    const tempDownloadId = Math.floor(Date.now() % 1e7);
+    let cleanName = cleanFilename(params.filename, "m4a");
+    let targetFilename = cleanName;
+    if (settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
+      const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, "_");
+      targetFilename = `${folder}/${cleanName}`;
+    }
+    const initialItem = {
+      downloadId: tempDownloadId,
+      audioId: params.audioId,
+      url: params.url,
+      filename: cleanName,
+      format: "m4a",
+      bytesReceived: 0,
+      totalBytes: 0,
+      state: "in_progress",
+      downloadStatus: "DOWNLOADING",
+      canResume: false,
+      paused: false,
+      startTime: Date.now(),
+      domain: params.domain || "unknown",
+      speedFormatted: "\u0110ang k\u1EBFt n\u1ED1i lu\u1ED3ng HLS..."
+    };
+    const currentDownloads = await storageService.getStoredDownloads();
+    currentDownloads.unshift(initialItem);
+    await storageService.saveStoredDownloads(currentDownloads.slice(0, 50));
+    try {
+      let lastSaveTime = Date.now();
+      const stitched = await hlsDownloader.downloadAndStitchHls({
+        playlistUrl: params.url,
+        onProgress: async (progress) => {
+          const now = Date.now();
+          if (now - lastSaveTime > 400 || progress.percent === 100) {
+            lastSaveTime = now;
+            const all = await storageService.getStoredDownloads();
+            const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+            if (idx >= 0) {
+              all[idx].bytesReceived = progress.bytes;
+              all[idx].totalBytes = Math.round(progress.bytes / (progress.percent / 100 || 1));
+              all[idx].speedFormatted = `\u0110ang t\u1EA3i ${progress.current}/${progress.total} (${progress.percent}%)`;
+              await storageService.saveStoredDownloads(all);
+            }
+          }
+        }
+      });
+      const ext = stitched.format || "m4a";
+      if (!cleanName.endsWith(`.${ext}`)) {
+        cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${ext}`);
+        if (targetFilename.includes("/")) {
+          const folder = targetFilename.substring(0, targetFilename.lastIndexOf("/") + 1);
+          targetFilename = `${folder}${cleanName}`;
+        } else {
+          targetFilename = cleanName;
+        }
+      }
+      let objectUrl;
+      try {
+        objectUrl = URL.createObjectURL(stitched.blob);
+      } catch {
+        objectUrl = await this.blobToDataUrl(stitched.blob);
+      }
+      if (isChromeExtension2) {
+        const chromeDownloadId = await chrome.downloads.download({
+          url: objectUrl,
+          filename: targetFilename,
+          conflictAction: "uniquify",
+          saveAs: params.saveAs !== void 0 ? params.saveAs : settings.promptFilename
+        });
+        const all = await storageService.getStoredDownloads();
+        const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+        if (idx >= 0) {
+          all[idx].downloadId = chromeDownloadId;
+          all[idx].bytesReceived = stitched.totalBytes;
+          all[idx].totalBytes = stitched.totalBytes;
+          all[idx].size = stitched.totalBytes;
+          all[idx].filename = cleanName;
+          all[idx].format = ext;
+          all[idx].speedFormatted = "Ho\xE0n t\u1EA5t gh\xE9p t\u1EC7p";
+          await storageService.saveStoredDownloads(all);
+        }
+        await storageService.addToHistory({
+          id: params.audioId || `dl_${chromeDownloadId}`,
+          title: cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, "").replace(/[_+-]+/g, " "),
+          filename: cleanName,
+          url: params.url,
+          format: ext,
+          size: stitched.totalBytes,
+          domain: params.domain || "unknown",
+          downloadedAt: Date.now(),
+          isFavorite: false
+        });
+        return chromeDownloadId;
+      } else {
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = cleanName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return tempDownloadId;
+      }
+    } catch (err) {
+      const all = await storageService.getStoredDownloads();
+      const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+      if (idx >= 0) {
+        all[idx].state = "interrupted";
+        all[idx].downloadStatus = "FAILED";
+        all[idx].error = err?.message || "L\u1ED7i khi gh\xE9p lu\u1ED3ng HLS";
+        await storageService.saveStoredDownloads(all);
+      }
+      throw err;
     }
   }
   /**
@@ -968,7 +1350,7 @@ var DownloadManager = class {
       });
       const stored = await storageService.getStoredDownloads();
       const storedMap = new Map(stored.map((s) => [s.downloadId, s]));
-      return items.filter((item) => {
+      const chromeResults = items.filter((item) => {
         const ext = getExtensionFromUrl(item.filename || item.url);
         const mime = item.mime || "";
         return mime.startsWith("audio/") || mime.startsWith("video/") || ["mp3", "wav", "flac", "aac", "m4a", "ogg", "opus", "webm", "mp4"].includes(ext);
@@ -1001,6 +1383,10 @@ var DownloadManager = class {
           retryCount: existing?.retryCount || 0
         };
       });
+      const assembling = stored.filter(
+        (s) => s.state === "in_progress" && !items.some((ci) => ci.id === s.downloadId)
+      );
+      return [...assembling, ...chromeResults];
     } catch (e) {
       console.warn("[AudioFlow] Failed to query chrome downloads:", e);
       return [];
@@ -1062,14 +1448,18 @@ chrome.webRequest.onHeadersReceived.addListener(
             contentLength = parseInt(header.value, 10) || 0;
           }
         }
-        const isAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url);
-        if (!isAudio) return;
+        const urlLower = details.url.toLowerCase();
+        const isHlsPlaylist = urlLower.includes(".m3u8") || contentType.includes("application/vnd.apple.mpegurl") || contentType.includes("application/x-mpegurl") || contentType.includes("audio/x-mpegurl");
+        const isDirectAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url);
+        if (!isDirectAudio && !isHlsPlaylist) return;
         if (isStreamChunkOrFragment(details.url, contentLength)) {
           return;
         }
-        const minBytes = Math.max((settings.minFileSizeKB || 0) * 1024, 150 * 1024);
-        if (contentLength > 0 && contentLength < minBytes) {
-          return;
+        if (!isHlsPlaylist) {
+          const minBytes = Math.max((settings.minFileSizeKB || 0) * 1024, 150 * 1024);
+          if (contentLength > 0 && contentLength < minBytes) {
+            return;
+          }
         }
         let pageUrl = details.initiator || details.url;
         let tabTitle = "";
@@ -1084,19 +1474,21 @@ chrome.webRequest.onHeadersReceived.addListener(
         } catch {
         }
         const { title, artist } = parseTitleAndArtistFromTab(tabTitle, pageUrl);
-        const format = getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url));
+        const format = isHlsPlaylist ? "m4a" : getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url));
         const item = createDetectedMediaItem({
           url: details.url,
-          source: "network-request",
+          source: isHlsPlaylist ? "hls-manifest" : "network-request",
           pageUrl,
           tabId: details.tabId,
           title,
           artist,
           format,
-          mimeType: contentType,
-          size: contentLength > 0 ? contentLength : void 0,
+          mimeType: isHlsPlaylist ? "application/vnd.apple.mpegurl" : contentType,
+          sourceType: isHlsPlaylist ? "PLAYLIST" : "DIRECT_FILE",
+          size: isHlsPlaylist ? void 0 : contentLength > 0 ? contentLength : void 0,
           downloadable: true,
-          downloadReason: "T\u1EC7p \xE2m thanh n\u1EA1p t\u1EEB m\u1EA1ng m\xE1y ch\u1EE7"
+          downloadReason: isHlsPlaylist ? "S\u1EB5n s\xE0ng t\u1EA3i b\xE0i h\xE1t \u0111\u1EA7y \u0111\u1EE7 (Gh\xE9p t\u1EEB lu\u1ED3ng HLS)" : "T\u1EC7p \xE2m thanh n\u1EA1p t\u1EEB m\u1EA1ng m\xE1y ch\u1EE7",
+          streamingProtocol: isHlsPlaylist ? "HLS Audio Stream" : void 0
         });
         if (item) {
           await storageService.addDetectedAudio(item);

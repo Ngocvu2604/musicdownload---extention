@@ -66,6 +66,11 @@ export function isStreamChunkOrFragment(rawUrl: string, sizeBytes?: number): boo
   if (!rawUrl) return false;
   const lower = rawUrl.toLowerCase();
 
+  // Playlists and manifests (.m3u8, .mpd) are complete stream descriptors, NOT fragments!
+  if (lower.includes('.m3u8') || lower.includes('/playlist') || lower.includes('.mpd')) {
+    return false;
+  }
+
   // Known streaming chunk domains
   if (
     lower.includes('playback.media-streaming.soundcloud.cloud') ||
@@ -259,7 +264,7 @@ export function createDetectedMediaItem(params: {
   }
 
   // Build filename combining artist and title
-  const finalExt = format !== 'unknown' ? format : 'mp3';
+  const finalExt = format !== 'unknown' && format !== 'hls' && format !== 'dash' ? format : 'm4a';
   const filename = buildSanitizedFilename(title, artist, finalExt);
 
   // Determine downloadability & DownloadStatus
@@ -288,10 +293,14 @@ export function createDetectedMediaItem(params: {
     downloadable = false;
     downloadStatus = 'STREAMING_ONLY';
     downloadReason = 'Nguồn phát trực tuyến (Streaming Media), không có file tải trực tiếp';
-  } else if (sourceType === 'PLAYLIST' || sourceType === 'MEDIA_SEGMENT') {
+  } else if (sourceType === 'PLAYLIST' || url.toLowerCase().includes('.m3u8')) {
+    downloadable = true;
+    downloadStatus = 'READY_TO_DOWNLOAD';
+    downloadReason = 'Sẵn sàng tải bài hát đầy đủ (Ghép từ luồng HLS chất lượng cao)';
+  } else if (sourceType === 'MEDIA_SEGMENT') {
     downloadable = false;
     downloadStatus = 'STREAMING_ONLY';
-    downloadReason = 'Nguồn phát qua phân đoạn / playlist streaming';
+    downloadReason = 'Phân đoạn âm thanh ngắn (chunk)';
   } else if (isDirectAudioUrl(url) || url.startsWith('http')) {
     downloadable = true;
     downloadStatus = 'READY_TO_DOWNLOAD';
@@ -315,7 +324,7 @@ export function createDetectedMediaItem(params: {
     pageUrl,
     mediaUrl: url,
     mediaType,
-    format: format !== 'unknown' ? format : 'mp3',
+    format: format !== 'unknown' && format !== 'hls' && format !== 'dash' ? format : 'm4a',
     sourceType,
     status,
     downloadStatus,

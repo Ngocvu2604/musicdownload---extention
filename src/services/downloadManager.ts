@@ -2,6 +2,7 @@ import { DownloadItem, DownloadStatus } from '../types/audio';
 import { cleanFilename, getExtensionFromUrl, getFormatFromMimeOrExt, formatSpeed } from '../utils/formatters';
 import { storageService } from '../storage/storageService';
 import { sourceValidator } from './sourceValidator';
+import { hlsDownloader } from './hlsDownloader';
 
 const isChromeExtension = typeof chrome !== 'undefined' && !!chrome.downloads;
 
@@ -21,6 +22,14 @@ export class DownloadManager {
     saveAs?: boolean;
     skipValidation?: boolean;
   }): Promise<number> {
+    const isHls =
+      params.url.toLowerCase().includes('.m3u8') ||
+      params.url.toLowerCase().includes('/playlist');
+
+    if (isHls) {
+      return await this.startHlsDownload(params);
+    }
+
     const settings = await storageService.getSettings();
 
     // 1. Smart Source Pre-validation (unless explicitly skipped for verified retry)
@@ -112,6 +121,163 @@ export class DownloadManager {
 
       const mockId = Date.now();
       return mockId;
+    }
+  }
+
+  /**
+   * Helper to convert Blob to Base64 Data URL if URL.createObjectURL is restricted
+   */
+  private async blobToDataUrl(blob: Blob): Promise<string> {
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const len = bytes.byteLength;
+    const chunkSize = 0x8000;
+    for (let i = 0; i < len; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, Math.min(i + chunkSize, len))));
+    }
+    return `data:${blob.type || 'audio/mp4'};base64,${btoa(binary)}`;
+  }
+
+  /**
+   * Download and assemble an HLS stream into a complete audio file
+   */
+  async startHlsDownload(params: {
+    url: string;
+    filename: string;
+    audioId?: string;
+    domain?: string;
+    saveAs?: boolean;
+  }): Promise<number> {
+    const settings = await storageService.getSettings();
+    const tempDownloadId = Math.floor(Date.now() % 10000000);
+
+    let cleanName = cleanFilename(params.filename, 'm4a');
+    let targetFilename = cleanName;
+    if (settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
+      const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, '_');
+      targetFilename = `${folder}/${cleanName}`;
+    }
+
+    // Register active download in storage
+    const initialItem: DownloadItem = {
+      downloadId: tempDownloadId,
+      audioId: params.audioId,
+      url: params.url,
+      filename: cleanName,
+      format: 'm4a',
+      bytesReceived: 0,
+      totalBytes: 0,
+      state: 'in_progress',
+      downloadStatus: 'DOWNLOADING',
+      canResume: false,
+      paused: false,
+      startTime: Date.now(),
+      domain: params.domain || 'unknown',
+      speedFormatted: 'Đang kết nối luồng HLS...',
+    };
+
+    const currentDownloads = await storageService.getStoredDownloads();
+    currentDownloads.unshift(initialItem);
+    await storageService.saveStoredDownloads(currentDownloads.slice(0, 50));
+
+    try {
+      let lastSaveTime = Date.now();
+      const stitched = await hlsDownloader.downloadAndStitchHls({
+        playlistUrl: params.url,
+        onProgress: async (progress) => {
+          const now = Date.now();
+          if (now - lastSaveTime > 400 || progress.percent === 100) {
+            lastSaveTime = now;
+            const all = await storageService.getStoredDownloads();
+            const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+            if (idx >= 0) {
+              all[idx].bytesReceived = progress.bytes;
+              all[idx].totalBytes = Math.round(progress.bytes / (progress.percent / 100 || 1));
+              all[idx].speedFormatted = `Đang tải ${progress.current}/${progress.total} (${progress.percent}%)`;
+              await storageService.saveStoredDownloads(all);
+            }
+          }
+        },
+      });
+
+      // Synchronize format extension: .m4a vs .mp3
+      const ext = stitched.format || 'm4a';
+      if (!cleanName.endsWith(`.${ext}`)) {
+        cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${ext}`);
+        if (targetFilename.includes('/')) {
+          const folder = targetFilename.substring(0, targetFilename.lastIndexOf('/') + 1);
+          targetFilename = `${folder}${cleanName}`;
+        } else {
+          targetFilename = cleanName;
+        }
+      }
+
+      // Convert Blob to URL for Chrome download
+      let objectUrl: string;
+      try {
+        objectUrl = URL.createObjectURL(stitched.blob);
+      } catch {
+        objectUrl = await this.blobToDataUrl(stitched.blob);
+      }
+
+      if (isChromeExtension) {
+        const chromeDownloadId = await chrome.downloads.download({
+          url: objectUrl,
+          filename: targetFilename,
+          conflictAction: 'uniquify',
+          saveAs: params.saveAs !== undefined ? params.saveAs : settings.promptFilename,
+        });
+
+        // Update stored item with final Chrome downloadId
+        const all = await storageService.getStoredDownloads();
+        const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+        if (idx >= 0) {
+          all[idx].downloadId = chromeDownloadId;
+          all[idx].bytesReceived = stitched.totalBytes;
+          all[idx].totalBytes = stitched.totalBytes;
+          all[idx].size = stitched.totalBytes;
+          all[idx].filename = cleanName;
+          all[idx].format = ext as any;
+          all[idx].speedFormatted = 'Hoàn tất ghép tệp';
+          await storageService.saveStoredDownloads(all);
+        }
+
+        // Add to history
+        await storageService.addToHistory({
+          id: params.audioId || `dl_${chromeDownloadId}`,
+          title: cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, '').replace(/[_+-]+/g, ' '),
+          filename: cleanName,
+          url: params.url,
+          format: ext as any,
+          size: stitched.totalBytes,
+          domain: params.domain || 'unknown',
+          downloadedAt: Date.now(),
+          isFavorite: false,
+        });
+
+        return chromeDownloadId;
+      } else {
+        // Fallback for non-extension web dev preview
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = cleanName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return tempDownloadId;
+      }
+    } catch (err: any) {
+      // Mark as failed in stored downloads
+      const all = await storageService.getStoredDownloads();
+      const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+      if (idx >= 0) {
+        all[idx].state = 'interrupted';
+        all[idx].downloadStatus = 'FAILED';
+        all[idx].error = err?.message || 'Lỗi khi ghép luồng HLS';
+        await storageService.saveStoredDownloads(all);
+      }
+      throw err;
     }
   }
 
@@ -275,7 +441,7 @@ export class DownloadManager {
       const stored = await storageService.getStoredDownloads();
       const storedMap = new Map(stored.map((s) => [s.downloadId, s]));
 
-      return items
+      const chromeResults = items
         .filter((item) => {
           const ext = getExtensionFromUrl(item.filename || item.url);
           const mime = item.mime || '';
@@ -317,6 +483,13 @@ export class DownloadManager {
             retryCount: existing?.retryCount || 0,
           };
         });
+
+      // Include active HLS assembling downloads not yet in Chrome download manager
+      const assembling = stored.filter(
+        (s) => s.state === 'in_progress' && !items.some((ci) => ci.id === s.downloadId)
+      );
+
+      return [...assembling, ...chromeResults];
     } catch (e) {
       console.warn('[AudioFlow] Failed to query chrome downloads:', e);
       return [];

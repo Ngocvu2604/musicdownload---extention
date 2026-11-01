@@ -75,17 +75,27 @@ chrome.webRequest.onHeadersReceived.addListener(
           }
         }
 
-        const isAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url);
-        if (!isAudio) return;
+        const urlLower = details.url.toLowerCase();
+        const isHlsPlaylist =
+          urlLower.includes('.m3u8') ||
+          contentType.includes('application/vnd.apple.mpegurl') ||
+          contentType.includes('application/x-mpegurl') ||
+          contentType.includes('audio/x-mpegurl');
+
+        const isDirectAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url);
+        if (!isDirectAudio && !isHlsPlaylist) return;
 
         // Ignore HLS / DASH stream chunks (like data024.m4a, seg-1.ts, 50KB fragments)
         if (isStreamChunkOrFragment(details.url, contentLength)) {
           return;
         }
 
-        const minBytes = Math.max((settings.minFileSizeKB || 0) * 1024, 150 * 1024); // Minimum 150KB for complete audio
-        if (contentLength > 0 && contentLength < minBytes) {
-          return;
+        // Minimum size check only applies to direct single files, not to .m3u8 playlist descriptors
+        if (!isHlsPlaylist) {
+          const minBytes = Math.max((settings.minFileSizeKB || 0) * 1024, 150 * 1024); // Minimum 150KB for complete audio
+          if (contentLength > 0 && contentLength < minBytes) {
+            return;
+          }
         }
 
         let pageUrl = details.initiator || details.url;
@@ -103,20 +113,26 @@ chrome.webRequest.onHeadersReceived.addListener(
         }
 
         const { title, artist } = parseTitleAndArtistFromTab(tabTitle, pageUrl);
-        const format = getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url));
+        const format = isHlsPlaylist
+          ? 'm4a'
+          : getFormatFromMimeOrExt(contentType, getExtensionFromUrl(details.url));
 
         const item = createDetectedMediaItem({
           url: details.url,
-          source: 'network-request',
+          source: isHlsPlaylist ? 'hls-manifest' : 'network-request',
           pageUrl,
           tabId: details.tabId,
           title,
           artist,
           format,
-          mimeType: contentType,
-          size: contentLength > 0 ? contentLength : undefined,
+          mimeType: isHlsPlaylist ? 'application/vnd.apple.mpegurl' : contentType,
+          sourceType: isHlsPlaylist ? 'PLAYLIST' : 'DIRECT_FILE',
+          size: isHlsPlaylist ? undefined : (contentLength > 0 ? contentLength : undefined),
           downloadable: true,
-          downloadReason: 'Tệp âm thanh nạp từ mạng máy chủ',
+          downloadReason: isHlsPlaylist
+            ? 'Sẵn sàng tải bài hát đầy đủ (Ghép từ luồng HLS)'
+            : 'Tệp âm thanh nạp từ mạng máy chủ',
+          streamingProtocol: isHlsPlaylist ? 'HLS Audio Stream' : undefined,
         });
 
         if (item) {

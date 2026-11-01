@@ -111,11 +111,28 @@ class StorageService {
 
       if (existingIndex >= 0) {
         const existing = items[existingIndex];
+        const isExistingTitleInvalid =
+          !existing.title ||
+          existing.title === 'SoundCloud Track' ||
+          existing.title === 'YouTube Video Media' ||
+          existing.title === 'Web Audio' ||
+          (existing.artist && existing.title.toLowerCase() === existing.artist.toLowerCase());
+
         const hasBetterTitle =
           item.title &&
           item.title !== 'SoundCloud Track' &&
           item.title !== 'YouTube Video Media' &&
-          item.title !== 'Web Audio';
+          item.title !== 'Web Audio' &&
+          (isExistingTitleInvalid || (item.artist && item.title.toLowerCase() !== item.artist.toLowerCase()));
+
+        const isDownloadable = Boolean(existing.downloadable || item.downloadable);
+
+        let bestMediaUrl = existing.mediaUrl;
+        if (item.mediaUrl && !item.mediaUrl.startsWith('blob:') && !item.mediaUrl.startsWith('data:')) {
+          bestMediaUrl = item.mediaUrl;
+        } else if (!bestMediaUrl) {
+          bestMediaUrl = item.mediaUrl;
+        }
 
         // Merge attributes and update live playback status
         items[existingIndex] = {
@@ -123,16 +140,18 @@ class StorageService {
           title: hasBetterTitle ? item.title : existing.title,
           artist: item.artist || existing.artist,
           filename: hasBetterTitle ? item.filename : existing.filename,
-          format: item.format !== 'unknown' ? item.format : existing.format,
+          format: item.format !== 'unknown' && item.format !== 'hls' ? item.format : existing.format,
           sourceType: item.sourceType !== 'UNKNOWN' ? item.sourceType : existing.sourceType,
           status: item.status !== 'UNKNOWN' ? item.status : existing.status,
-          downloadStatus: item.downloadStatus || existing.downloadStatus,
+          downloadStatus: isDownloadable ? 'READY_TO_DOWNLOAD' : (item.downloadStatus || existing.downloadStatus),
           currentTime: item.currentTime ?? existing.currentTime,
           duration: item.duration ?? existing.duration,
           size: (item.size && item.size > (existing.size || 0)) ? item.size : existing.size,
-          mediaUrl: (item.mediaUrl && !item.mediaUrl.startsWith('blob:')) ? item.mediaUrl : (existing.mediaUrl || item.mediaUrl),
-          downloadable: item.downloadable !== undefined ? item.downloadable : existing.downloadable,
-          downloadReason: item.downloadReason || existing.downloadReason,
+          mediaUrl: bestMediaUrl,
+          downloadable: isDownloadable,
+          downloadReason: isDownloadable
+            ? (item.downloadReason || existing.downloadReason || 'Sẵn sàng tải bài hát đầy đủ')
+            : (item.downloadReason || existing.downloadReason),
           streamingProtocol: item.streamingProtocol || existing.streamingProtocol,
           updatedAt: Date.now(),
         };
