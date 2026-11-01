@@ -76,34 +76,53 @@ class LinkResolver {
    */
   async resolveSoundCloud(
     url: string,
-    targetFormat: 'mp4' | 'mp3' | 'wav'
+    targetFormat: 'mp4' | 'mp3' | 'wav' = 'mp3'
   ): Promise<ResolvedMediaResult> {
     try {
-      // 1. Fetch the SoundCloud track page HTML
-      const resp = await fetch(url, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-      });
+      let soundData: any = null;
+      let clientId = this.cachedScClientId || KNOWN_SC_CLIENT_IDS[0];
+      let html = '';
 
-      if (!resp.ok) {
-        throw new Error(`Không thể kết nối đến SoundCloud (${resp.status})`);
+      // 1. Fetch the SoundCloud track page HTML
+      try {
+        const resp = await fetch(url, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+        });
+
+        if (resp.ok) {
+          html = await resp.text();
+          clientId = await this.getSoundCloudClientId(html);
+
+          // 2. Extract hydration JSON state
+          const hydMatch = html.match(/window\.__sc_hydration\s*=\s*(\[.*?\]);/s);
+          if (hydMatch) {
+            try {
+              const parsed = JSON.parse(hydMatch[1]);
+              const found = parsed.find((item: any) => item.hydratable === 'sound');
+              if (found && found.data) {
+                soundData = found.data;
+              }
+            } catch {}
+          }
+        }
+      } catch (fetchErr) {
+        console.warn('[AudioFlow] HTML fetch failed for SoundCloud track:', fetchErr);
       }
 
-      const html = await resp.text();
-
-      // 2. Extract hydration JSON state
-      const hydMatch = html.match(/window\.__sc_hydration\s*=\s*(\[.*?\]);/s);
-      let soundData: any = null;
-
-      if (hydMatch) {
+      // Fallback: If hydration didn't find soundData, resolve via SoundCloud V2 API
+      if (!soundData) {
         try {
-          const parsed = JSON.parse(hydMatch[1]);
-          const found = parsed.find((item: any) => item.hydratable === 'sound');
-          if (found && found.data) {
-            soundData = found.data;
+          const resolveApiUrl = `https://api-v2.soundcloud.com/resolve?url=${encodeURIComponent(url)}&client_id=${clientId}`;
+          const apiRes = await fetch(resolveApiUrl);
+          if (apiRes.ok) {
+            const apiData = await apiRes.json();
+            if (apiData && (apiData.kind === 'track' || apiData.media?.transcodings)) {
+              soundData = apiData;
+            }
           }
         } catch {}
       }
@@ -129,7 +148,6 @@ class LinkResolver {
         transcodings[0];
 
       // 4. Retrieve Client ID and resolve stream URL
-      const clientId = await this.getSoundCloudClientId(html);
       const streamEndpoint = `${targetTrans.url}?client_id=${clientId}`;
 
       const streamResp = await fetch(streamEndpoint);
@@ -157,6 +175,52 @@ class LinkResolver {
         throw new Error('Lỗi kết nối mạng: Không thể tải dữ liệu từ SoundCloud. Vui lòng kiểm tra lại đường dẫn.');
       }
       throw e;
+    }
+  }
+
+  /**
+   * Search track on SoundCloud and resolve fresh HLS stream directly
+   */
+  async resolveSoundCloudByQuery(
+    query: string,
+    targetFormat: 'mp4' | 'mp3' | 'wav' = 'mp3'
+  ): Promise<ResolvedMediaResult | null> {
+    try {
+      const clientId = this.cachedScClientId || KNOWN_SC_CLIENT_IDS[0];
+      const cleanQ = query.replace(/\.[a-zA-Z0-9]{2,5}$/, '').replace(/[_+-]+/g, ' ').trim();
+      if (!cleanQ) return null;
+
+      const searchUrl = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(cleanQ)}&client_id=${clientId}&limit=3`;
+      const res = await fetch(searchUrl);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const track = data.collection && data.collection[0];
+      if (!track || !track.media?.transcodings?.length) return null;
+
+      const transcodings = track.media.transcodings;
+      const targetTrans =
+        transcodings.find((t: any) => t.format?.protocol === 'hls' && t.preset?.includes('abr')) ||
+        transcodings.find((t: any) => t.format?.protocol === 'hls') ||
+        transcodings[0];
+
+      const streamResp = await fetch(`${targetTrans.url}?client_id=${clientId}`);
+      if (!streamResp.ok) return null;
+      const streamJson = await streamResp.json();
+      if (!streamJson || !streamJson.url) return null;
+
+      const rawTitle = track.title || cleanQ;
+      const artist = track.user?.username || track.user?.permalink || 'SoundCloud Artist';
+
+      return {
+        url: streamJson.url,
+        title: cleanFilename(`${rawTitle} - ${artist}`),
+        artist,
+        format: targetFormat === 'wav' ? 'wav' : 'mp3',
+        source: 'soundcloud',
+        isStream: true,
+      };
+    } catch {
+      return null;
     }
   }
 

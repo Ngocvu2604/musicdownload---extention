@@ -209,7 +209,11 @@ export class HlsDownloader {
     const { playlistUrl, onProgress } = params;
 
     // 1. Fetch the master or media playlist
-    const res = await fetch(playlistUrl);
+    const res = await fetch(playlistUrl, {
+      headers: {
+        Accept: '*/*',
+      },
+    });
     if (!res.ok) {
       throw new Error(`Không thể tải danh sách phát HLS (HTTP ${res.status})`);
     }
@@ -220,7 +224,11 @@ export class HlsDownloader {
     // If master playlist, fetch the first audio variant
     if (info.isMaster && info.variantPlaylists && info.variantPlaylists.length > 0) {
       const childUrl = info.variantPlaylists[0];
-      const childRes = await fetch(childUrl);
+      const childRes = await fetch(childUrl, {
+        headers: {
+          Accept: '*/*',
+        },
+      });
       if (!childRes.ok) {
         throw new Error(`Không thể nạp luồng phát con từ Master Playlist (HTTP ${childRes.status})`);
       }

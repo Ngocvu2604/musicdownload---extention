@@ -249,6 +249,7 @@ export const App: React.FC = () => {
         filename: customFilename || item.title || item.filename,
         audioId: item.id,
         domain: item.website,
+        pageUrl: item.pageUrl,
         size: item.size,
         targetFormat: effectiveFormat,
         explicitFormatSelection: isExplicit,
@@ -300,6 +301,7 @@ export const App: React.FC = () => {
           filename: i.title || i.filename,
           audioId: i.id,
           domain: i.website,
+          pageUrl: i.pageUrl,
           size: i.size,
         }))
       );

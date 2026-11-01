@@ -903,7 +903,11 @@ var HlsDownloader = class {
    */
   async downloadAndStitchHls(params) {
     const { playlistUrl, onProgress } = params;
-    const res = await fetch(playlistUrl);
+    const res = await fetch(playlistUrl, {
+      headers: {
+        Accept: "*/*"
+      }
+    });
     if (!res.ok) {
       throw new Error(`Kh\xF4ng th\u1EC3 t\u1EA3i danh s\xE1ch ph\xE1t HLS (HTTP ${res.status})`);
     }
@@ -911,7 +915,11 @@ var HlsDownloader = class {
     let info = this.parsePlaylist(playlistUrl, playlistText);
     if (info.isMaster && info.variantPlaylists && info.variantPlaylists.length > 0) {
       const childUrl = info.variantPlaylists[0];
-      const childRes = await fetch(childUrl);
+      const childRes = await fetch(childUrl, {
+        headers: {
+          Accept: "*/*"
+        }
+      });
       if (!childRes.ok) {
         throw new Error(`Kh\xF4ng th\u1EC3 n\u1EA1p lu\u1ED3ng ph\xE1t con t\u1EEB Master Playlist (HTTP ${childRes.status})`);
       }
@@ -10898,6 +10906,316 @@ var AudioConverter = class {
 };
 var audioConverter = new AudioConverter();
 
+// src/services/linkResolver.ts
+var KNOWN_SC_CLIENT_IDS = [
+  "OGA0P5R5U4CpyooNe9OUcnjIMxao2hB2",
+  "a3dd183dc579bc1bfc8579f1a084197b",
+  "2t9loNfh0ekOfbnFeO3wEiHGMIjv3mt2"
+];
+var LinkResolver = class {
+  cachedScClientId = null;
+  /**
+   * Identify platform from URL
+   */
+  getPlatform(rawUrl) {
+    const lower = rawUrl.toLowerCase();
+    if (lower.includes("youtube.com") || lower.includes("youtu.be")) {
+      return "youtube";
+    }
+    if (lower.includes("tiktok.com") || lower.includes("douyin.com")) {
+      return "tiktok";
+    }
+    if (lower.includes("soundcloud.com")) {
+      return "soundcloud";
+    }
+    return "direct";
+  }
+  /**
+   * Scrape active SoundCloud Client ID from asset scripts
+   */
+  async getSoundCloudClientId(html) {
+    if (this.cachedScClientId) return this.cachedScClientId;
+    try {
+      const scriptUrls = [...html.matchAll(/src="(https:\/\/a-v2\.sndcdn\.com\/assets\/[^"]+\.js)"/g)].map(
+        (m) => m[1]
+      );
+      for (let i = scriptUrls.length - 1; i >= 0 && i >= scriptUrls.length - 4; i--) {
+        try {
+          const resp = await fetch(scriptUrls[i]);
+          if (resp.ok) {
+            const text = await resp.text();
+            const idMatch = text.match(/client_id[:=]"([a-zA-Z0-9]{32})"/);
+            if (idMatch && idMatch[1]) {
+              this.cachedScClientId = idMatch[1];
+              return this.cachedScClientId;
+            }
+          }
+        } catch {
+        }
+      }
+    } catch {
+    }
+    return KNOWN_SC_CLIENT_IDS[0];
+  }
+  /**
+   * Resolve SoundCloud track natively using SoundCloud's internal streaming APIs
+   */
+  async resolveSoundCloud(url, targetFormat = "mp3") {
+    try {
+      let soundData = null;
+      let clientId = this.cachedScClientId || KNOWN_SC_CLIENT_IDS[0];
+      let html = "";
+      try {
+        const resp = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+          }
+        });
+        if (resp.ok) {
+          html = await resp.text();
+          clientId = await this.getSoundCloudClientId(html);
+          const hydMatch = html.match(/window\.__sc_hydration\s*=\s*(\[.*?\]);/s);
+          if (hydMatch) {
+            try {
+              const parsed = JSON.parse(hydMatch[1]);
+              const found = parsed.find((item) => item.hydratable === "sound");
+              if (found && found.data) {
+                soundData = found.data;
+              }
+            } catch {
+            }
+          }
+        }
+      } catch (fetchErr) {
+        console.warn("[AudioFlow] HTML fetch failed for SoundCloud track:", fetchErr);
+      }
+      if (!soundData) {
+        try {
+          const resolveApiUrl = `https://api-v2.soundcloud.com/resolve?url=${encodeURIComponent(url)}&client_id=${clientId}`;
+          const apiRes = await fetch(resolveApiUrl);
+          if (apiRes.ok) {
+            const apiData = await apiRes.json();
+            if (apiData && (apiData.kind === "track" || apiData.media?.transcodings)) {
+              soundData = apiData;
+            }
+          }
+        } catch {
+        }
+      }
+      if (!soundData) {
+        throw new Error("Kh\xF4ng th\u1EC3 t\xECm th\u1EA5y th\xF4ng tin b\xE0i h\xE1t tr\xEAn trang SoundCloud n\xE0y");
+      }
+      const rawTitle = soundData.title || "SoundCloud Track";
+      const artist = soundData.user?.username || soundData.user?.permalink || "SoundCloud Artist";
+      const cleanTitle = cleanFilename(`${rawTitle} - ${artist}`);
+      const transcodings = soundData.media?.transcodings || [];
+      if (transcodings.length === 0) {
+        throw new Error("B\xE0i h\xE1t kh\xF4ng c\xF3 lu\u1ED3ng ph\xE1t tr\u1EF1c tuy\u1EBFn c\xF4ng khai");
+      }
+      const targetTrans = transcodings.find((t) => t.format?.protocol === "hls" && t.preset?.includes("abr")) || transcodings.find((t) => t.format?.protocol === "hls") || transcodings[0];
+      const streamEndpoint = `${targetTrans.url}?client_id=${clientId}`;
+      const streamResp = await fetch(streamEndpoint);
+      if (!streamResp.ok) {
+        throw new Error(`SoundCloud t\u1EEB ch\u1ED1i c\u1EA5p lu\u1ED3ng (${streamResp.status})`);
+      }
+      const streamJson = await streamResp.json();
+      if (!streamJson || !streamJson.url) {
+        throw new Error("Kh\xF4ng th\u1EC3 l\u1EA5y li\xEAn k\u1EBFt lu\u1ED3ng \xE2m thanh t\u1EEB SoundCloud");
+      }
+      const finalFmt = targetFormat === "wav" ? "wav" : "mp3";
+      return {
+        url: streamJson.url,
+        title: cleanTitle,
+        artist,
+        format: finalFmt,
+        source: "soundcloud",
+        isStream: true
+      };
+    } catch (e) {
+      if (e?.message && e.message.includes("Failed to fetch")) {
+        throw new Error("L\u1ED7i k\u1EBFt n\u1ED1i m\u1EA1ng: Kh\xF4ng th\u1EC3 t\u1EA3i d\u1EEF li\u1EC7u t\u1EEB SoundCloud. Vui l\xF2ng ki\u1EC3m tra l\u1EA1i \u0111\u01B0\u1EDDng d\u1EABn.");
+      }
+      throw e;
+    }
+  }
+  /**
+   * Search track on SoundCloud and resolve fresh HLS stream directly
+   */
+  async resolveSoundCloudByQuery(query, targetFormat = "mp3") {
+    try {
+      const clientId = this.cachedScClientId || KNOWN_SC_CLIENT_IDS[0];
+      const cleanQ = query.replace(/\.[a-zA-Z0-9]{2,5}$/, "").replace(/[_+-]+/g, " ").trim();
+      if (!cleanQ) return null;
+      const searchUrl = `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(cleanQ)}&client_id=${clientId}&limit=3`;
+      const res = await fetch(searchUrl);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const track = data.collection && data.collection[0];
+      if (!track || !track.media?.transcodings?.length) return null;
+      const transcodings = track.media.transcodings;
+      const targetTrans = transcodings.find((t) => t.format?.protocol === "hls" && t.preset?.includes("abr")) || transcodings.find((t) => t.format?.protocol === "hls") || transcodings[0];
+      const streamResp = await fetch(`${targetTrans.url}?client_id=${clientId}`);
+      if (!streamResp.ok) return null;
+      const streamJson = await streamResp.json();
+      if (!streamJson || !streamJson.url) return null;
+      const rawTitle = track.title || cleanQ;
+      const artist = track.user?.username || track.user?.permalink || "SoundCloud Artist";
+      return {
+        url: streamJson.url,
+        title: cleanFilename(`${rawTitle} - ${artist}`),
+        artist,
+        format: targetFormat === "wav" ? "wav" : "mp3",
+        source: "soundcloud",
+        isStream: true
+      };
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * Resolve a TikTok video/music URL using TikWM API (Fast, no watermark, free)
+   */
+  async resolveTikTok(url, targetFormat) {
+    try {
+      const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`;
+      const resp = await fetch(apiUrl, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      });
+      if (!resp.ok) {
+        throw new Error(`L\u1ED7i k\u1EBFt n\u1ED1i m\xE1y ch\u1EE7 TikTok (${resp.status})`);
+      }
+      const json = await resp.json();
+      if (json.code === 0 && json.data) {
+        const title = (json.data.title || "TikTok Video").replace(/[#@][\w]+/g, "").trim() || "TikTok Media";
+        const artist = json.data.author?.nickname || json.data.author?.unique_id || "TikTok Creator";
+        let downloadUrl = json.data.play;
+        let finalFormat = targetFormat;
+        if (targetFormat === "mp3" || targetFormat === "wav") {
+          downloadUrl = json.data.music || json.data.play;
+          finalFormat = targetFormat;
+        } else {
+          downloadUrl = json.data.play || json.data.wmplay;
+          finalFormat = "mp4";
+        }
+        if (downloadUrl.startsWith("/")) {
+          downloadUrl = `https://www.tikwm.com${downloadUrl}`;
+        }
+        return {
+          url: downloadUrl,
+          title: cleanFilename(title),
+          artist,
+          format: finalFormat,
+          source: "tiktok"
+        };
+      } else {
+        throw new Error(json.msg || "Kh\xF4ng th\u1EC3 l\u1EA5y d\u1EEF li\u1EC7u video TikTok. Vui l\xF2ng ki\u1EC3m tra l\u1EA1i URL.");
+      }
+    } catch (e) {
+      if (e?.message && e.message.includes("Failed to fetch")) {
+        throw new Error("L\u1ED7i k\u1EBFt n\u1ED1i m\u1EA1ng khi t\u1EA3i TikTok. Vui l\xF2ng ki\u1EC3m tra k\u1EBFt n\u1ED1i Internet.");
+      }
+      throw e;
+    }
+  }
+  /**
+   * Resolve YouTube video/audio
+   */
+  async resolveYouTube(url, targetFormat) {
+    let videoId = "";
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname.includes("youtu.be")) {
+        videoId = parsed.pathname.replace("/", "");
+      } else {
+        videoId = parsed.searchParams.get("v") || "";
+      }
+    } catch {
+    }
+    if (!videoId) {
+      throw new Error("Kh\xF4ng th\u1EC3 nh\u1EADn di\u1EC7n m\xE3 video YouTube t\u1EEB li\xEAn k\u1EBFt n\xE0y.");
+    }
+    const invidiousInstances = [
+      "https://invidious.nerdvpn.de",
+      "https://inv.nadeko.net",
+      "https://yewtu.be",
+      "https://invidious.protokolla.fi"
+    ];
+    for (const inst of invidiousInstances) {
+      try {
+        const resp = await fetch(`${inst}/api/v1/videos/${videoId}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.title) {
+            const isAudio = targetFormat === "mp3" || targetFormat === "wav";
+            let mediaUrl = "";
+            if (isAudio && data.adaptiveFormats && data.adaptiveFormats.length > 0) {
+              const audioStream = data.adaptiveFormats.find((f) => f.type?.includes("audio"));
+              if (audioStream?.url) mediaUrl = audioStream.url;
+            }
+            if (!mediaUrl && data.formatStreams && data.formatStreams.length > 0) {
+              mediaUrl = data.formatStreams[0]?.url || "";
+            }
+            if (mediaUrl) {
+              return {
+                url: mediaUrl,
+                title: cleanFilename(data.title),
+                artist: data.author,
+                format: isAudio ? targetFormat : "mp4",
+                source: "youtube"
+              };
+            }
+          }
+        }
+      } catch {
+      }
+    }
+    throw new Error(
+      'YouTube ch\u1EB7n tr\xEDch xu\u1EA5t qua li\xEAn k\u1EBFt ngo\xE0i. B\u1EA1n h\xE3y m\u1EDF video tr\xEAn tab tr\xECnh duy\u1EC7t, AudioFlow s\u1EBD t\u1EF1 \u0111\u1ED9ng b\u1EAFt lu\u1ED3ng \u0111\u1EC3 t\u1EA3i t\u1EA1i tab "Ph\xE1t hi\u1EC7n"!'
+    );
+  }
+  /**
+   * Main resolver entrypoint
+   */
+  async resolveUrl(url, targetFormat) {
+    const cleanUrl = url.trim();
+    if (!cleanUrl.startsWith("http")) {
+      throw new Error("\u0110\u01B0\u1EDDng d\u1EABn kh\xF4ng h\u1EE3p l\u1EC7. Vui l\xF2ng b\u1EAFt \u0111\u1EA7u b\u1EB1ng http:// ho\u1EB7c https://");
+    }
+    const platform = this.getPlatform(cleanUrl);
+    if (platform === "soundcloud") {
+      return await this.resolveSoundCloud(cleanUrl, targetFormat);
+    }
+    if (platform === "tiktok") {
+      return await this.resolveTikTok(cleanUrl, targetFormat);
+    }
+    if (platform === "youtube") {
+      return await this.resolveYouTube(cleanUrl, targetFormat);
+    }
+    let title = "media_file";
+    try {
+      const parsed = new URL(cleanUrl);
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      if (segments.length > 0) {
+        title = segments[segments.length - 1].replace(/\.[a-zA-Z0-9]{2,5}$/, "");
+      }
+    } catch {
+    }
+    const isVideo = cleanUrl.toLowerCase().includes(".mp4") || cleanUrl.toLowerCase().includes(".webm");
+    const format = targetFormat || (isVideo ? "mp4" : "mp3");
+    return {
+      url: cleanUrl,
+      title: cleanFilename(title),
+      format,
+      source: "direct"
+    };
+  }
+};
+var linkResolver = new LinkResolver();
+
 // src/services/downloadManager.ts
 var isChromeExtension2 = typeof chrome !== "undefined" && !!chrome.downloads;
 var speedTracker = /* @__PURE__ */ new Map();
@@ -11095,6 +11413,7 @@ var DownloadManager = class {
       downloadId: tempDownloadId,
       audioId: params.audioId,
       url: params.url,
+      pageUrl: params.pageUrl,
       filename: cleanName,
       format: preferredFormat,
       bytesReceived: 0,
@@ -11112,23 +11431,76 @@ var DownloadManager = class {
     await storageService.saveStoredDownloads(currentDownloads.slice(0, 50));
     try {
       let lastSaveTime = Date.now();
-      const stitched = await hlsDownloader.downloadAndStitchHls({
-        playlistUrl: params.url,
-        onProgress: async (progress) => {
-          const now = Date.now();
-          if (now - lastSaveTime > 400 || progress.percent === 100) {
-            lastSaveTime = now;
-            const all = await storageService.getStoredDownloads();
-            const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
-            if (idx >= 0) {
-              all[idx].bytesReceived = progress.bytes;
-              all[idx].totalBytes = Math.round(progress.bytes / (progress.percent / 100 || 1));
-              all[idx].speedFormatted = `\u0110ang t\u1EA3i ${progress.current}/${progress.total} (${progress.percent}%)`;
-              await storageService.saveStoredDownloads(all);
+      let currentPlaylistUrl = params.url;
+      let stitched = null;
+      const runStitch = async (targetUrl) => {
+        return await hlsDownloader.downloadAndStitchHls({
+          playlistUrl: targetUrl,
+          onProgress: async (progress) => {
+            const now = Date.now();
+            if (now - lastSaveTime > 400 || progress.percent === 100) {
+              lastSaveTime = now;
+              const all = await storageService.getStoredDownloads();
+              const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+              if (idx >= 0) {
+                all[idx].bytesReceived = progress.bytes;
+                all[idx].totalBytes = Math.round(progress.bytes / (progress.percent / 100 || 1));
+                all[idx].speedFormatted = `\u0110ang t\u1EA3i ${progress.current}/${progress.total} (${progress.percent}%)`;
+                await storageService.saveStoredDownloads(all);
+              }
             }
           }
+        });
+      };
+      try {
+        stitched = await runStitch(currentPlaylistUrl);
+      } catch (firstErr) {
+        const errMsg = String(firstErr?.message || "");
+        const isAuthOrExpired = errMsg.includes("403") || errMsg.includes("401") || errMsg.includes("Kh\xF4ng th\u1EC3 t\u1EA3i danh s\xE1ch");
+        const isSoundCloud = params.domain && params.domain.toLowerCase().includes("soundcloud") || params.pageUrl && params.pageUrl.toLowerCase().includes("soundcloud.com") || currentPlaylistUrl.toLowerCase().includes("soundcloud") || currentPlaylistUrl.toLowerCase().includes("sndcdn");
+        if (isAuthOrExpired && isSoundCloud) {
+          console.log("[AudioFlow] SoundCloud HLS stream expired or returned 403. Auto-refreshing stream...");
+          const all = await storageService.getStoredDownloads();
+          const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+          if (idx >= 0) {
+            all[idx].speedFormatted = "\u0110ang l\xE0m m\u1EDBi lu\u1ED3ng ph\xE1t SoundCloud...";
+            await storageService.saveStoredDownloads(all);
+          }
+          let freshUrl = null;
+          if (params.pageUrl && params.pageUrl.includes("soundcloud.com")) {
+            try {
+              const resolved = await linkResolver.resolveSoundCloud(params.pageUrl, preferredFormat || "mp3");
+              if (resolved && resolved.url) {
+                freshUrl = resolved.url;
+              }
+            } catch (resErr) {
+              console.warn("[AudioFlow] Direct pageUrl resolve failed, will try query search:", resErr);
+            }
+          }
+          if (!freshUrl) {
+            const queryName = params.filename || cleanName;
+            const searchResolved = await linkResolver.resolveSoundCloudByQuery(queryName, preferredFormat || "mp3");
+            if (searchResolved && searchResolved.url) {
+              freshUrl = searchResolved.url;
+            }
+          }
+          if (freshUrl) {
+            currentPlaylistUrl = freshUrl;
+            const allDls = await storageService.getStoredDownloads();
+            const i = allDls.findIndex((d) => d.downloadId === tempDownloadId);
+            if (i >= 0) {
+              allDls[i].url = freshUrl;
+              allDls[i].speedFormatted = "B\u1EAFt \u0111\u1EA7u t\u1EA3i lu\u1ED3ng ph\xE1t m\u1EDBi...";
+              await storageService.saveStoredDownloads(allDls);
+            }
+            stitched = await runStitch(currentPlaylistUrl);
+          } else {
+            throw firstErr;
+          }
+        } else {
+          throw firstErr;
         }
-      });
+      }
       let finalBlob = stitched.blob;
       let finalFormat = "mp3";
       let finalExt = "mp3";
@@ -11282,6 +11654,7 @@ var DownloadManager = class {
         filename: item.filename,
         audioId: item.audioId,
         domain: item.domain,
+        pageUrl: item.pageUrl,
         size: item.size,
         saveAs: false
       });

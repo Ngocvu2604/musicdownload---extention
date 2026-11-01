@@ -249,7 +249,13 @@ function inspectMediaElement(element: HTMLMediaElement) {
         if (perfHls && perfHls.name) {
           let hlsUrl = perfHls.name;
           if (!hlsUrl.includes('.m3u8')) {
-            hlsUrl = hlsUrl.substring(0, hlsUrl.lastIndexOf('/') + 1) + 'playlist.m3u8';
+            try {
+              const u = new URL(hlsUrl);
+              u.pathname = u.pathname.substring(0, u.pathname.lastIndexOf('/') + 1) + 'playlist.m3u8';
+              hlsUrl = u.toString();
+            } catch {
+              hlsUrl = hlsUrl.substring(0, hlsUrl.lastIndexOf('/') + 1) + 'playlist.m3u8';
+            }
           }
           src = hlsUrl;
           mediaType = 'audio';
@@ -291,6 +297,22 @@ function inspectMediaElement(element: HTMLMediaElement) {
     downloadReason = isVideo ? 'Đang phát video trên trang' : 'Đang phát âm thanh trên trang';
   }
 
+  // Determine canonical page URL (especially for SoundCloud where tab URL might be stream/discover/likes)
+  let canonicalPageUrl = window.location.href;
+  if (isSoundCloud) {
+    const playerBadgeLink = document.querySelector<HTMLAnchorElement>(
+      'a.playbackSoundBadge__titleLink, a.playbackSoundBadge__title'
+    );
+    if (playerBadgeLink) {
+      const href = playerBadgeLink.getAttribute('href');
+      if (href && href.startsWith('/')) {
+        canonicalPageUrl = `${window.location.origin}${href.split('?')[0]}`;
+      } else if (href && href.startsWith('http')) {
+        canonicalPageUrl = href.split('?')[0];
+      }
+    }
+  }
+
   const mediaItem = createDetectedMediaItem({
     url: src || window.location.href,
     source: isYouTube
@@ -300,7 +322,7 @@ function inspectMediaElement(element: HTMLMediaElement) {
       : isVideo
       ? 'dom-video'
       : 'dom-audio',
-    pageUrl: window.location.href,
+    pageUrl: canonicalPageUrl,
     tabId: 0,
     title,
     artist,

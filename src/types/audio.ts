@@ -94,6 +94,7 @@ export interface DownloadItem {
   downloadId: number;
   audioId?: string;
   url: string;
+  pageUrl?: string;
   filename: string;
   format: AudioFormat;
   size?: number;

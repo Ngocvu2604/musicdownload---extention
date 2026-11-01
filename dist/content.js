@@ -474,7 +474,13 @@
           if (perfHls && perfHls.name) {
             let hlsUrl = perfHls.name;
             if (!hlsUrl.includes(".m3u8")) {
-              hlsUrl = hlsUrl.substring(0, hlsUrl.lastIndexOf("/") + 1) + "playlist.m3u8";
+              try {
+                const u = new URL(hlsUrl);
+                u.pathname = u.pathname.substring(0, u.pathname.lastIndexOf("/") + 1) + "playlist.m3u8";
+                hlsUrl = u.toString();
+              } catch {
+                hlsUrl = hlsUrl.substring(0, hlsUrl.lastIndexOf("/") + 1) + "playlist.m3u8";
+              }
             }
             src = hlsUrl;
             mediaType = "audio";
@@ -511,10 +517,24 @@
       sourceType = "UNKNOWN";
       downloadReason = isVideo ? "\u0110ang ph\xE1t video tr\xEAn trang" : "\u0110ang ph\xE1t \xE2m thanh tr\xEAn trang";
     }
+    let canonicalPageUrl = window.location.href;
+    if (isSoundCloud) {
+      const playerBadgeLink = document.querySelector(
+        "a.playbackSoundBadge__titleLink, a.playbackSoundBadge__title"
+      );
+      if (playerBadgeLink) {
+        const href = playerBadgeLink.getAttribute("href");
+        if (href && href.startsWith("/")) {
+          canonicalPageUrl = `${window.location.origin}${href.split("?")[0]}`;
+        } else if (href && href.startsWith("http")) {
+          canonicalPageUrl = href.split("?")[0];
+        }
+      }
+    }
     const mediaItem = createDetectedMediaItem({
       url: src || window.location.href,
       source: isYouTube ? "youtube-source" : isSoundCloud ? "soundcloud-source" : isVideo ? "dom-video" : "dom-audio",
-      pageUrl: window.location.href,
+      pageUrl: canonicalPageUrl,
       tabId: 0,
       title,
       artist,

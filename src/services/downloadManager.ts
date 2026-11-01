@@ -4,6 +4,7 @@ import { storageService } from '../storage/storageService';
 import { sourceValidator } from './sourceValidator';
 import { hlsDownloader } from './hlsDownloader';
 import { audioConverter } from './audioConverter';
+import { linkResolver } from './linkResolver';
 
 const isChromeExtension = typeof chrome !== 'undefined' && !!chrome.downloads;
 
@@ -19,6 +20,7 @@ export class DownloadManager {
     filename: string;
     audioId?: string;
     domain?: string;
+    pageUrl?: string;
     size?: number;
     saveAs?: boolean;
     skipValidation?: boolean;
@@ -237,6 +239,7 @@ export class DownloadManager {
     filename: string;
     audioId?: string;
     domain?: string;
+    pageUrl?: string;
     saveAs?: boolean;
     targetFormat?: 'mp3' | 'm4a' | 'wav' | 'mp4';
   }): Promise<number> {
@@ -259,6 +262,7 @@ export class DownloadManager {
       downloadId: tempDownloadId,
       audioId: params.audioId,
       url: params.url,
+      pageUrl: params.pageUrl,
       filename: cleanName,
       format: preferredFormat as any,
       bytesReceived: 0,
@@ -278,23 +282,91 @@ export class DownloadManager {
 
     try {
       let lastSaveTime = Date.now();
-      const stitched = await hlsDownloader.downloadAndStitchHls({
-        playlistUrl: params.url,
-        onProgress: async (progress) => {
-          const now = Date.now();
-          if (now - lastSaveTime > 400 || progress.percent === 100) {
-            lastSaveTime = now;
-            const all = await storageService.getStoredDownloads();
-            const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
-            if (idx >= 0) {
-              all[idx].bytesReceived = progress.bytes;
-              all[idx].totalBytes = Math.round(progress.bytes / (progress.percent / 100 || 1));
-              all[idx].speedFormatted = `Đang tải ${progress.current}/${progress.total} (${progress.percent}%)`;
-              await storageService.saveStoredDownloads(all);
+      let currentPlaylistUrl = params.url;
+      let stitched: any = null;
+
+      const runStitch = async (targetUrl: string) => {
+        return await hlsDownloader.downloadAndStitchHls({
+          playlistUrl: targetUrl,
+          onProgress: async (progress) => {
+            const now = Date.now();
+            if (now - lastSaveTime > 400 || progress.percent === 100) {
+              lastSaveTime = now;
+              const all = await storageService.getStoredDownloads();
+              const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+              if (idx >= 0) {
+                all[idx].bytesReceived = progress.bytes;
+                all[idx].totalBytes = Math.round(progress.bytes / (progress.percent / 100 || 1));
+                all[idx].speedFormatted = `Đang tải ${progress.current}/${progress.total} (${progress.percent}%)`;
+                await storageService.saveStoredDownloads(all);
+              }
+            }
+          },
+        });
+      };
+
+      try {
+        stitched = await runStitch(currentPlaylistUrl);
+      } catch (firstErr: any) {
+        // Auto-refresh logic for SoundCloud or expired tokens
+        const errMsg = String(firstErr?.message || '');
+        const isAuthOrExpired = errMsg.includes('403') || errMsg.includes('401') || errMsg.includes('Không thể tải danh sách');
+        const isSoundCloud =
+          (params.domain && params.domain.toLowerCase().includes('soundcloud')) ||
+          (params.pageUrl && params.pageUrl.toLowerCase().includes('soundcloud.com')) ||
+          currentPlaylistUrl.toLowerCase().includes('soundcloud') ||
+          currentPlaylistUrl.toLowerCase().includes('sndcdn');
+
+        if (isAuthOrExpired && isSoundCloud) {
+          console.log('[AudioFlow] SoundCloud HLS stream expired or returned 403. Auto-refreshing stream...');
+
+          const all = await storageService.getStoredDownloads();
+          const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
+          if (idx >= 0) {
+            all[idx].speedFormatted = 'Đang làm mới luồng phát SoundCloud...';
+            await storageService.saveStoredDownloads(all);
+          }
+
+          let freshUrl: string | null = null;
+          // Strategy A: Resolve via canonical pageUrl
+          if (params.pageUrl && params.pageUrl.includes('soundcloud.com')) {
+            try {
+              const resolved = await linkResolver.resolveSoundCloud(params.pageUrl, (preferredFormat as any) || 'mp3');
+              if (resolved && resolved.url) {
+                freshUrl = resolved.url;
+              }
+            } catch (resErr) {
+              console.warn('[AudioFlow] Direct pageUrl resolve failed, will try query search:', resErr);
             }
           }
-        },
-      });
+
+          // Strategy B: Resolve via track name search if pageUrl failed or was not direct
+          if (!freshUrl) {
+            const queryName = params.filename || cleanName;
+            const searchResolved = await linkResolver.resolveSoundCloudByQuery(queryName, (preferredFormat as any) || 'mp3');
+            if (searchResolved && searchResolved.url) {
+              freshUrl = searchResolved.url;
+            }
+          }
+
+          if (freshUrl) {
+            currentPlaylistUrl = freshUrl;
+            const allDls = await storageService.getStoredDownloads();
+            const i = allDls.findIndex((d) => d.downloadId === tempDownloadId);
+            if (i >= 0) {
+              allDls[i].url = freshUrl;
+              allDls[i].speedFormatted = 'Bắt đầu tải luồng phát mới...';
+              await storageService.saveStoredDownloads(allDls);
+            }
+
+            stitched = await runStitch(currentPlaylistUrl);
+          } else {
+            throw firstErr;
+          }
+        } else {
+          throw firstErr;
+        }
+      }
 
       // Convert to user's desired format (MP3 by default)
       let finalBlob = stitched.blob;
@@ -445,7 +517,7 @@ export class DownloadManager {
    * Batch download multiple audio items
    */
   async batchDownload(
-    items: Array<{ url: string; filename: string; audioId?: string; domain?: string; size?: number }>
+    items: Array<{ url: string; filename: string; audioId?: string; domain?: string; pageUrl?: string; size?: number }>
   ): Promise<number[]> {
     const downloadIds: number[] = [];
     for (const item of items) {
@@ -474,6 +546,7 @@ export class DownloadManager {
         filename: item.filename,
         audioId: item.audioId,
         domain: item.domain,
+        pageUrl: item.pageUrl,
         size: item.size,
         saveAs: false,
       });
