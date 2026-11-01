@@ -292,6 +292,7 @@ chrome.runtime.onMessage.addListener(
           return { success: true };
         }
 
+        case 'VALIDATE_AND_DOWNLOAD':
         case 'START_DOWNLOAD': {
           const payload = message.payload;
           if (!payload || !payload.url) {
@@ -310,6 +311,18 @@ chrome.runtime.onMessage.addListener(
           } catch (err: any) {
             return { success: false, error: err?.message || 'Download failed' };
           }
+        }
+
+        case 'RETRY_DOWNLOAD': {
+          if (message.payload?.downloadId) {
+            try {
+              const newId = await downloadManager.retryDownload(message.payload.downloadId);
+              return { success: true, downloadId: newId };
+            } catch (err: any) {
+              return { success: false, error: err?.message || 'Thử lại thất bại' };
+            }
+          }
+          return { success: false, error: 'downloadId is required' };
         }
 
         case 'PAUSE_DOWNLOAD': {

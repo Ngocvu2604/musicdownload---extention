@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   AlertCircle,
   FileAudio,
+  RotateCcw,
+  Zap,
 } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 
@@ -19,6 +21,7 @@ interface DownloadsViewProps {
   onCancel: (id: number) => void;
   onShowItem: (id: number) => void;
   onOpenFolder: () => void;
+  onRetry?: (id: number) => void;
 }
 
 export const DownloadsView: React.FC<DownloadsViewProps> = ({
@@ -28,6 +31,7 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
   onCancel,
   onShowItem,
   onOpenFolder,
+  onRetry,
 }) => {
   if (downloads.length === 0) {
     return <EmptyState type="downloads" />;
@@ -67,34 +71,44 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
           return (
             <div
               key={item.downloadId}
-              className="bg-[#1A1B20] border border-[#2E303B] rounded-xl p-3 transition-all"
+              className="bg-[#1A1B20] border border-[#2E303B] rounded-xl p-3 transition-all hover:border-[#3E4250]"
             >
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-[#2E303B] flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-[#2E303B] flex items-center justify-center shrink-0">
                     <FileAudio className="w-4 h-4 text-[#A78BFA]" />
                   </div>
                   <div className="min-w-0">
                     <p
-                      className="text-xs font-semibold text-white truncate max-w-[200px]"
+                      className="text-xs font-semibold text-white truncate max-w-[190px]"
                       title={item.filename}
                     >
                       {item.filename}
                     </p>
-                    <p className="text-[10px] text-[#9CA3AF] truncate">
-                      {formatBytes(item.bytesReceived)}
-                      {item.totalBytes > 0 && ` / ${formatBytes(item.totalBytes)}`}
-                    </p>
+                    <div className="flex items-center gap-2 text-[10px] text-[#9CA3AF]">
+                      <span>
+                        {formatBytes(item.bytesReceived)}
+                        {item.totalBytes > 0 && ` / ${formatBytes(item.totalBytes)}`}
+                      </span>
+
+                      {/* Realtime Download Speed */}
+                      {isInProgress && item.speedFormatted && !item.paused && (
+                        <span className="flex items-center gap-0.5 text-[#22D3EE] font-mono">
+                          <Zap className="w-2.5 h-2.5" />
+                          {item.speedFormatted}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* Status or Controls */}
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   {isComplete && (
                     <button
                       onClick={() => onShowItem(item.downloadId)}
                       title="Mở tệp trong thư mục"
-                      className="flex items-center gap-1 text-[11px] text-[#22D3EE] hover:underline px-2 py-0.5 rounded bg-[#22D3EE]/10 border border-[#22D3EE]/20"
+                      className="flex items-center gap-1 text-[11px] text-[#22D3EE] hover:underline px-2 py-0.5 rounded bg-[#22D3EE]/10 border border-[#22D3EE]/20 transition-colors"
                     >
                       <CheckCircle2 className="w-3 h-3" />
                       <span>Xem tệp</span>
@@ -132,26 +146,51 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
                   )}
 
                   {isInterrupted && (
-                    <span className="flex items-center gap-1 text-[10px] text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
-                      <AlertCircle className="w-3 h-3" />
-                      <span>Thất bại</span>
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {onRetry && (
+                        <button
+                          onClick={() => onRetry(item.downloadId)}
+                          title="Thử tải lại"
+                          className="flex items-center gap-1 text-[11px] font-medium text-amber-300 hover:text-white px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Thử lại</span>
+                        </button>
+                      )}
+                      <span className="flex items-center gap-1 text-[10px] text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>Thất bại</span>
+                      </span>
+                    </div>
                   )}
                 </div>
               </div>
 
               {/* Progress Bar */}
               {isInProgress && (
-                <div className="w-full bg-[#101114] h-1.5 rounded-full overflow-hidden border border-[#2E303B]">
-                  <div
-                    className={`h-full transition-all duration-300 ${
-                      item.paused
-                        ? 'bg-amber-400'
-                        : 'bg-gradient-to-r from-[#7C3AED] to-[#22D3EE]'
-                    }`}
-                    style={{ width: `${percent}%` }}
-                  ></div>
+                <div className="space-y-1">
+                  <div className="w-full bg-[#101114] h-1.5 rounded-full overflow-hidden border border-[#2E303B]">
+                    <div
+                      className={`h-full transition-all duration-300 ${
+                        item.paused
+                          ? 'bg-amber-400'
+                          : 'bg-gradient-to-r from-[#7C3AED] to-[#22D3EE]'
+                      }`}
+                      style={{ width: `${percent}%` }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between items-center text-[10px] text-[#6B7280]">
+                    <span>{item.paused ? 'Đã tạm dừng' : 'Đang tải...'}</span>
+                    <span>{percent}%</span>
+                  </div>
                 </div>
+              )}
+
+              {/* Error message detail if failed */}
+              {isInterrupted && item.error && (
+                <p className="mt-1.5 text-[10px] text-rose-400/90 bg-rose-950/20 border border-rose-900/30 rounded p-1 truncate">
+                  Lý do: {item.error}
+                </p>
               )}
             </div>
           );
@@ -160,4 +199,3 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
     </div>
   );
 };
-

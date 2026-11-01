@@ -7,9 +7,22 @@ export type AudioFormat =
   | 'ogg'
   | 'opus'
   | 'webm'
+  | 'mp4'
+  | 'hls'
+  | 'dash'
   | 'unknown';
 
-export type MediaSourceType = 'DIRECT' | 'BLOB' | 'STREAMING' | 'UNKNOWN';
+export type MediaSourceType =
+  | 'DIRECT_FILE'
+  | 'STREAMING_MEDIA'
+  | 'BLOB_MEDIA'
+  | 'PLAYLIST'
+  | 'MEDIA_SEGMENT'
+  | 'UNKNOWN'
+  // Backward compatibility aliases:
+  | 'DIRECT'
+  | 'BLOB'
+  | 'STREAMING';
 
 export type MediaPlaybackStatus =
   | 'PLAYING'
@@ -18,6 +31,14 @@ export type MediaPlaybackStatus =
   | 'ENDED'
   | 'UNKNOWN';
 
+export type DownloadStatus =
+  | 'READY_TO_DOWNLOAD'
+  | 'DOWNLOADING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'NOT_AVAILABLE'
+  | 'STREAMING_ONLY';
+
 export type DetectionSource =
   | 'dom-audio'
   | 'dom-video'
@@ -25,15 +46,18 @@ export type DetectionSource =
   | 'network-request'
   | 'youtube-source'
   | 'soundcloud-source'
-  | 'performance-resource';
+  | 'performance-resource'
+  | 'hls-manifest'
+  | 'dash-manifest';
 
 /**
- * Unified Media Interface as requested in Section 6
+ * Advanced Unified Media Interface for V2 Engine
  */
 export interface DetectedMedia {
   id: string;
   tabId: number;
   title: string;
+  artist?: string; // Channel name, Creator, Singer, Band
   website: string;
   pageUrl: string;
 
@@ -43,6 +67,7 @@ export interface DetectedMedia {
   sourceType: MediaSourceType;
 
   status: MediaPlaybackStatus;
+  downloadStatus?: DownloadStatus;
 
   duration?: number;
   currentTime?: number;
@@ -50,18 +75,19 @@ export interface DetectedMedia {
 
   downloadable: boolean;
   downloadReason?: string;
+  streamingProtocol?: string; // 'HLS' | 'DASH' | 'Blob MediaSource' | 'Direct HTTP'
 
   detectedAt: number;
   updatedAt: number;
   isFavorite?: boolean;
 
-  // Metadata for advanced UI
+  // Metadata for advanced UI & download
   source: DetectionSource;
   mimeType?: string;
   filename: string;
+  lastError?: string;
 }
 
-// Backward-compatibility alias
 export type DetectedAudioItem = DetectedMedia;
 
 export interface DownloadItem {
@@ -79,11 +105,16 @@ export interface DownloadItem {
   error?: string;
   startTime: number;
   domain: string;
+  speed?: number; // bytes/sec
+  speedFormatted?: string;
+  downloadStatus?: DownloadStatus;
+  retryCount?: number;
 }
 
 export interface HistoryItem {
   id: string;
   title: string;
+  artist?: string;
   filename: string;
   url: string;
   format: AudioFormat;
@@ -92,6 +123,17 @@ export interface HistoryItem {
   domain: string;
   downloadedAt: number;
   isFavorite: boolean;
+}
+
+export interface SourceValidationResult {
+  isValid: boolean;
+  isAudioOrVideo: boolean;
+  contentType?: string;
+  contentLength?: number;
+  contentDispositionFilename?: string;
+  httpStatus?: number;
+  error?: string;
+  suggestedFormat?: AudioFormat;
 }
 
 export interface UserSettings {
@@ -116,9 +158,11 @@ export type MessageType =
   | 'GET_TAB_MEDIA'
   | 'CLEAR_TAB_AUDIO'
   | 'START_DOWNLOAD'
+  | 'VALIDATE_AND_DOWNLOAD'
   | 'PAUSE_DOWNLOAD'
   | 'RESUME_DOWNLOAD'
   | 'CANCEL_DOWNLOAD'
+  | 'RETRY_DOWNLOAD'
   | 'SHOW_DOWNLOAD_ITEM'
   | 'OPEN_DOWNLOADS_FOLDER'
   | 'GET_DOWNLOADS'

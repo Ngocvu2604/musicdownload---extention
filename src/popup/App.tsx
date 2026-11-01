@@ -246,6 +246,19 @@ export const App: React.FC = () => {
   };
 
   /**
+   * Retry a failed download item
+   */
+  const handleRetryDownload = async (downloadId: number) => {
+    try {
+      await downloadManager.retryDownload(downloadId);
+      const updated = await downloadManager.getChromeDownloads();
+      setDownloads(updated);
+    } catch (err: any) {
+      alert(`Không thể thử lại: ${err?.message || 'Lỗi mạng hoặc liên kết hết hạn'}`);
+    }
+  };
+
+  /**
    * Batch download selected items (only downloadable items)
    */
   const handleBatchDownload = async () => {
@@ -484,6 +497,7 @@ export const App: React.FC = () => {
             onCancel={(id) => downloadManager.cancelDownload(id)}
             onShowItem={(id) => downloadManager.showDownloadItem(id)}
             onOpenFolder={() => downloadManager.openDownloadsFolder()}
+            onRetry={handleRetryDownload}
           />
         )}
 
@@ -506,6 +520,7 @@ export const App: React.FC = () => {
                 format: item.format,
                 sourceType: 'DIRECT',
                 status: 'UNKNOWN',
+                downloadStatus: 'READY_TO_DOWNLOAD',
                 size: item.size,
                 downloadable: true,
                 downloadReason: 'Tải lại từ thư viện',

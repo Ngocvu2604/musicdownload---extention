@@ -4,9 +4,10 @@ import {
   DetectedMedia,
   MediaSourceType,
   MediaPlaybackStatus,
+  DownloadStatus,
 } from '../types/audio';
 import {
-  cleanFilename,
+  buildSanitizedFilename,
   getDomainFromUrl,
   getExtensionFromUrl,
   getFormatFromMimeOrExt,
@@ -21,6 +22,7 @@ export const SUPPORTED_AUDIO_EXTENSIONS = [
   'ogg',
   'opus',
   'webm',
+  'mp4',
 ] as const;
 
 export const AUDIO_MIME_TYPES = [
@@ -38,6 +40,8 @@ export const AUDIO_MIME_TYPES = [
   'application/ogg',
   'audio/opus',
   'audio/webm',
+  'video/mp4',
+  'video/webm',
 ];
 
 /**
@@ -70,9 +74,6 @@ export function isDirectAudioUrl(rawUrl: string): boolean {
   }
 }
 
-/**
- * Backward compatible alias
- */
 export const isAudioUrl = isDirectAudioUrl;
 
 /**
@@ -85,34 +86,64 @@ export function isAudioMimeType(mimeType?: string): boolean {
 }
 
 /**
- * Classify Media Source Type
+ * Classify Media Source Type as required by V2 Specification
  */
 export function determineSourceType(url: string = '', mimeType: string = ''): MediaSourceType {
   const lowerUrl = url.toLowerCase();
-  if (lowerUrl.startsWith('blob:')) {
-    return 'BLOB';
-  }
+  const lowerMime = mimeType.toLowerCase();
+
+  // Playlists & Manifests
   if (
     lowerUrl.includes('.m3u8') ||
+    lowerMime.includes('application/vnd.apple.mpegurl') ||
+    lowerMime.includes('application/x-mpegurl') ||
     lowerUrl.includes('.mpd') ||
+    lowerMime.includes('application/dash+xml')
+  ) {
+    return 'PLAYLIST';
+  }
+
+  // Media Segments
+  if (
+    lowerUrl.endsWith('.ts') ||
+    lowerUrl.endsWith('.m4s') ||
+    lowerUrl.includes('seg-') ||
+    lowerUrl.includes('segment-') ||
+    lowerUrl.includes('range=')
+  ) {
+    return 'MEDIA_SEGMENT';
+  }
+
+  // Blob Media
+  if (lowerUrl.startsWith('blob:')) {
+    return 'BLOB_MEDIA';
+  }
+
+  // Streaming Media
+  if (
     lowerUrl.includes('googlevideo.com') ||
     lowerUrl.includes('manifest') ||
-    lowerUrl.includes('stream') ||
-    lowerUrl.includes('segment')
+    lowerUrl.includes('/stream/') ||
+    lowerUrl.includes('sndcdn.com/stream') ||
+    lowerUrl.includes('/hls/')
   ) {
-    return 'STREAMING';
+    return 'STREAMING_MEDIA';
   }
+
+  // Direct Audio File
   if (isDirectAudioUrl(url) || isAudioMimeType(mimeType)) {
-    return 'DIRECT';
+    return 'DIRECT_FILE';
   }
-  if (url.startsWith('http')) {
-    return 'DIRECT';
+
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return 'DIRECT_FILE';
   }
+
   return 'UNKNOWN';
 }
 
 /**
- * Build a DetectedMedia object safely
+ * Build a DetectedMedia object safely with V2 attributes
  */
 export function createDetectedMediaItem(params: {
   url?: string;
@@ -120,16 +151,19 @@ export function createDetectedMediaItem(params: {
   pageUrl: string;
   tabId: number;
   title?: string;
+  artist?: string;
   mediaType?: 'audio' | 'video' | 'stream' | 'unknown';
   format?: AudioFormat;
   sourceType?: MediaSourceType;
   status?: MediaPlaybackStatus;
+  downloadStatus?: DownloadStatus;
   duration?: number;
   currentTime?: number;
   size?: number;
   mimeType?: string;
   downloadable?: boolean;
   downloadReason?: string;
+  streamingProtocol?: string;
 }): DetectedMedia {
   const {
     url = '',
@@ -137,6 +171,7 @@ export function createDetectedMediaItem(params: {
     pageUrl,
     tabId,
     title: initialTitle,
+    artist,
     mediaType = 'audio',
     format: initialFormat,
     sourceType: initialSourceType,
@@ -147,6 +182,7 @@ export function createDetectedMediaItem(params: {
     mimeType = '',
     downloadable: initialDownloadable,
     downloadReason: initialReason,
+    streamingProtocol,
   } = params;
 
   const domain = getDomainFromUrl(pageUrl || url);
@@ -158,7 +194,7 @@ export function createDetectedMediaItem(params: {
   let title = (initialTitle || '').trim();
   if (!title) {
     if (domain.includes('youtube.com')) {
-      title = 'YouTube Media';
+      title = 'YouTube Video Media';
     } else if (domain.includes('soundcloud.com')) {
       title = 'SoundCloud Track';
     } else if (url && url.startsWith('http')) {
@@ -174,39 +210,54 @@ export function createDetectedMediaItem(params: {
     }
   }
 
-  // Sanitize filename
-  const cleanBase = title.replace(/\.[a-zA-Z0-9]{2,5}$/, '');
+  // Build filename combining artist and title
   const finalExt = format !== 'unknown' ? format : 'mp3';
-  const filename = cleanFilename(`${cleanBase}.${finalExt}`);
+  const filename = buildSanitizedFilename(title, artist, finalExt);
 
-  // Downloadable check
+  // Determine downloadability & DownloadStatus
   let downloadable = false;
   let downloadReason = '';
+  let downloadStatus: DownloadStatus = 'NOT_AVAILABLE';
 
   if (initialDownloadable !== undefined) {
     downloadable = initialDownloadable;
-    downloadReason = initialReason || (downloadable ? 'Sẵn sàng tải về' : 'Không có file tải trực tiếp');
+    downloadStatus = downloadable ? 'READY_TO_DOWNLOAD' : 'NOT_AVAILABLE';
+    downloadReason =
+      initialReason || (downloadable ? 'Sẵn sàng tải về' : 'Không có file tải trực tiếp');
   } else if (domain.includes('youtube.com')) {
     downloadable = false;
+    downloadStatus = 'STREAMING_ONLY';
     downloadReason = 'Nguồn phát trực tuyến YouTube (DASH/Blob), tuân thủ chính sách bản quyền';
-  } else if (sourceType === 'BLOB' || sourceType === 'STREAMING') {
+  } else if (sourceType === 'BLOB_MEDIA' || sourceType === 'BLOB') {
     downloadable = false;
-    downloadReason = 'Nguồn phát trực tuyến (Streaming), không có file tải trực tiếp';
+    downloadStatus = 'STREAMING_ONLY';
+    downloadReason = 'Nguồn phát trực tuyến qua Blob URL, không có file tải trực tiếp';
+  } else if (sourceType === 'STREAMING_MEDIA' || sourceType === 'STREAMING') {
+    downloadable = false;
+    downloadStatus = 'STREAMING_ONLY';
+    downloadReason = 'Nguồn phát trực tuyến (Streaming Media), không có file tải trực tiếp';
+  } else if (sourceType === 'PLAYLIST' || sourceType === 'MEDIA_SEGMENT') {
+    downloadable = false;
+    downloadStatus = 'STREAMING_ONLY';
+    downloadReason = 'Nguồn phát qua phân đoạn / playlist streaming';
   } else if (isDirectAudioUrl(url) || url.startsWith('http')) {
     downloadable = true;
+    downloadStatus = 'READY_TO_DOWNLOAD';
     downloadReason = 'File âm thanh trực tiếp sẵn sàng tải về';
   } else {
     downloadable = false;
+    downloadStatus = 'NOT_AVAILABLE';
     downloadReason = 'Chưa xác định được liên kết tải trực tiếp';
   }
 
-  const id = generateMediaId(url, pageUrl, title);
+  const id = generateMediaId(url, pageUrl, `${title}_${artist || ''}`);
   const now = Date.now();
 
   return {
     id,
     tabId,
     title,
+    artist,
     filename,
     website: domain,
     pageUrl,
@@ -215,11 +266,13 @@ export function createDetectedMediaItem(params: {
     format: format !== 'unknown' ? format : 'mp3',
     sourceType,
     status,
+    downloadStatus,
     duration: duration && duration > 0 ? duration : undefined,
     currentTime: currentTime && currentTime >= 0 ? currentTime : undefined,
     size: size && size > 0 ? size : undefined,
     downloadable,
     downloadReason,
+    streamingProtocol,
     source,
     mimeType,
     detectedAt: now,
@@ -227,7 +280,4 @@ export function createDetectedMediaItem(params: {
   };
 }
 
-/**
- * Backward compatibility helper
- */
 export const createDetectedAudioItem = createDetectedMediaItem;

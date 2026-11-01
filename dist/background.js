@@ -250,6 +250,15 @@ var StorageService = class {
 var storageService = new StorageService();
 
 // src/utils/formatters.ts
+function formatSpeed(bytesPerSec) {
+  if (!bytesPerSec || bytesPerSec <= 0 || !isFinite(bytesPerSec)) {
+    return "-- KB/s";
+  }
+  if (bytesPerSec >= 1024 * 1024) {
+    return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+  }
+  return `${Math.round(bytesPerSec / 1024)} KB/s`;
+}
 function getDomainFromUrl(rawUrl) {
   try {
     const parsed = new URL(rawUrl);
@@ -257,6 +266,30 @@ function getDomainFromUrl(rawUrl) {
   } catch {
     return "unknown";
   }
+}
+function parseFilenameFromContentDisposition(header) {
+  if (!header) return null;
+  const utf8Match = header.match(/filename\*\s*=\s*UTF-8''([^;\r\n]+)/i);
+  if (utf8Match && utf8Match[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim());
+    } catch {
+      return utf8Match[1].trim();
+    }
+  }
+  const normalMatch = header.match(/filename\s*=\s*(?:"([^"]+)"|([^;\r\n]+))/i);
+  if (normalMatch) {
+    const raw = normalMatch[1] || normalMatch[2];
+    if (raw) return raw.trim();
+  }
+  return null;
+}
+function buildSanitizedFilename(title, artist, ext = "mp3") {
+  let base = title.trim();
+  if (artist && artist.trim() && !base.toLowerCase().includes(artist.toLowerCase())) {
+    base = `${artist.trim()} - ${base}`;
+  }
+  return cleanFilename(base, ext);
 }
 function cleanFilename(name, fallbackExt = "mp3") {
   if (!name || !name.trim()) {
@@ -296,19 +329,169 @@ function getFormatFromMimeOrExt(mimeType, ext) {
   if (e === "aac" || mime.includes("audio/aac")) return "aac";
   if (e === "ogg" || mime.includes("audio/ogg") || mime.includes("application/ogg")) return "ogg";
   if (e === "opus" || mime.includes("audio/opus")) return "opus";
-  if (e === "webm" || mime.includes("audio/webm")) return "webm";
+  if (e === "m3u8" || mime.includes("application/vnd.apple.mpegurl") || mime.includes("application/x-mpegurl")) return "hls";
+  if (e === "mpd" || mime.includes("application/dash+xml")) return "dash";
+  if (e === "mp4" || mime.includes("video/mp4") || mime.includes("audio/mp4")) return "mp4";
+  if (e === "webm" || mime.includes("audio/webm") || mime.includes("video/webm")) return "webm";
   return "unknown";
 }
 
+// src/services/sourceValidator.ts
+var SourceValidator = class {
+  /**
+   * Validate a media source URL before downloading
+   */
+  async validateSource(url) {
+    if (!url || typeof url !== "string") {
+      return {
+        isValid: false,
+        isAudioOrVideo: false,
+        error: "URL kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c \u0111\u1EC3 tr\u1ED1ng"
+      };
+    }
+    if (url.startsWith("blob:") || url.startsWith("data:")) {
+      return {
+        isValid: false,
+        isAudioOrVideo: false,
+        error: "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn (Blob/Data URI), kh\xF4ng h\u1ED7 tr\u1EE3 t\u1EA3i tr\u1EF1c ti\u1EBFp qua HTTP"
+      };
+    }
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      return {
+        isValid: false,
+        isAudioOrVideo: false,
+        error: "Giao th\u1EE9c kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3 (ch\u1EC9 h\u1ED7 tr\u1EE3 http/https)"
+      };
+    }
+    try {
+      let response = null;
+      let usedRangeGet = false;
+      try {
+        response = await fetch(url, {
+          method: "HEAD",
+          credentials: "omit",
+          headers: {
+            "Accept": "audio/*, video/*, */*"
+          }
+        });
+      } catch {
+        usedRangeGet = true;
+      }
+      if (usedRangeGet || !response || response.status === 405 || response.status === 403) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 6e3);
+          response = await fetch(url, {
+            method: "GET",
+            headers: {
+              "Range": "bytes=0-1",
+              "Accept": "audio/*, video/*, */*"
+            },
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+        } catch (e) {
+          return {
+            isValid: false,
+            isAudioOrVideo: false,
+            error: `L\u1ED7i k\u1EBFt n\u1ED1i t\u1EDBi m\xE1y ch\u1EE7 ngu\u1ED3n: ${e?.message || "Network error"}`
+          };
+        }
+      }
+      if (!response) {
+        return {
+          isValid: false,
+          isAudioOrVideo: false,
+          error: "Kh\xF4ng nh\u1EADn \u0111\u01B0\u1EE3c ph\u1EA3n h\u1ED3i t\u1EEB m\xE1y ch\u1EE7 ngu\u1ED3n"
+        };
+      }
+      const status = response.status;
+      if (status === 404 || status === 410) {
+        return {
+          isValid: false,
+          isAudioOrVideo: false,
+          httpStatus: status,
+          error: `T\xE0i nguy\xEAn kh\xF4ng t\u1ED3n t\u1EA1i ho\u1EB7c li\xEAn k\u1EBFt \u0111\xE3 h\u1EBFt h\u1EA1n (HTTP ${status})`
+        };
+      }
+      if (status === 401 || status === 403) {
+        return {
+          isValid: false,
+          isAudioOrVideo: false,
+          httpStatus: status,
+          error: `M\xE1y ch\u1EE7 y\xEAu c\u1EA7u quy\u1EC1n truy c\u1EADp ho\u1EB7c x\xE1c th\u1EF1c (HTTP ${status})`
+        };
+      }
+      if (status >= 500) {
+        return {
+          isValid: false,
+          isAudioOrVideo: false,
+          httpStatus: status,
+          error: `M\xE1y ch\u1EE7 ngu\u1ED3n g\u1EB7p l\u1ED7i n\u1ED9i b\u1ED9 (HTTP ${status})`
+        };
+      }
+      const rawContentType = response.headers.get("content-type") || "";
+      const contentType = rawContentType.toLowerCase();
+      if (contentType.includes("text/html") || contentType.includes("application/json") || contentType.includes("text/plain")) {
+        return {
+          isValid: false,
+          isAudioOrVideo: false,
+          httpStatus: status,
+          contentType,
+          error: "Li\xEAn k\u1EBFt tr\u1EA3 v\u1EC1 n\u1ED9i dung trang Web/HTML, kh\xF4ng ph\u1EA3i file \xE2m thanh h\u1EE3p l\u1EC7 (URL c\xF3 th\u1EC3 \u0111\xE3 h\u1EBFt h\u1EA1n)"
+        };
+      }
+      const contentLengthHeader = response.headers.get("content-length");
+      const contentLength = contentLengthHeader ? parseInt(contentLengthHeader, 10) : void 0;
+      const contentDisposition = response.headers.get("content-disposition");
+      const filenameFromHeader = parseFilenameFromContentDisposition(contentDisposition || void 0);
+      const ext = getExtensionFromUrl(url);
+      const isMediaMime = contentType.startsWith("audio/") || contentType.startsWith("video/") || contentType.includes("application/ogg") || contentType.includes("application/vnd.apple.mpegurl") || contentType.includes("application/octet-stream");
+      const suggestedFormat = getFormatFromMimeOrExt(contentType, ext);
+      return {
+        isValid: true,
+        isAudioOrVideo: isMediaMime || suggestedFormat !== "unknown",
+        contentType,
+        contentLength: contentLength && contentLength > 0 ? contentLength : void 0,
+        contentDispositionFilename: filenameFromHeader || void 0,
+        httpStatus: status,
+        suggestedFormat
+      };
+    } catch (err) {
+      return {
+        isValid: false,
+        isAudioOrVideo: false,
+        error: `Kh\xF4ng th\u1EC3 x\xE1c th\u1EF1c ngu\u1ED3n: ${err?.message || "Network error"}`
+      };
+    }
+  }
+};
+var sourceValidator = new SourceValidator();
+
 // src/services/downloadManager.ts
 var isChromeExtension2 = typeof chrome !== "undefined" && !!chrome.downloads;
+var speedTracker = /* @__PURE__ */ new Map();
 var DownloadManager = class {
   /**
-   * Start downloading an audio item
+   * Start downloading an audio item with smart pre-validation
    */
   async startDownload(params) {
     const settings = await storageService.getSettings();
-    const cleanName = cleanFilename(params.filename);
+    let finalFilename = params.filename;
+    let validatedSize = params.size;
+    if (!params.skipValidation) {
+      const validation = await sourceValidator.validateSource(params.url);
+      if (!validation.isValid) {
+        throw new Error(validation.error || "Ngu\u1ED3n kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c kh\xF4ng c\xF3 quy\u1EC1n truy c\u1EADp");
+      }
+      if (validation.contentDispositionFilename) {
+        finalFilename = validation.contentDispositionFilename;
+      }
+      if (validation.contentLength) {
+        validatedSize = validation.contentLength;
+      }
+    }
+    const cleanName = cleanFilename(finalFilename);
     let targetFilename = cleanName;
     if (settings.downloadSubfolder && settings.downloadSubfolder.trim()) {
       const folder = settings.downloadSubfolder.trim().replace(/[<>:"/\\|?*]/g, "_");
@@ -330,22 +513,25 @@ var DownloadManager = class {
           url: params.url,
           filename: cleanName,
           format,
-          size: params.size,
+          size: validatedSize,
           bytesReceived: 0,
-          totalBytes: params.size || 0,
+          totalBytes: validatedSize || 0,
           state: "in_progress",
+          downloadStatus: "DOWNLOADING",
           canResume: false,
           paused: false,
           startTime: Date.now(),
-          domain: params.domain || "unknown"
+          domain: params.domain || "unknown",
+          retryCount: 0
         };
+        speedTracker.set(downloadId, { lastBytes: 0, lastTime: Date.now() });
         const current = await storageService.getStoredDownloads();
         current.unshift(newDownload);
         await storageService.saveStoredDownloads(current.slice(0, 50));
         return downloadId;
       } catch (error) {
-        console.error("Failed to initiate download:", error);
-        throw error;
+        console.error("[AudioFlow] Failed to initiate download:", error);
+        throw new Error(error?.message || "Kh\xF4ng th\u1EC3 b\u1EAFt \u0111\u1EA7u t\u1EA3i xu\u1ED1ng qua Chrome Downloads API");
       }
     } else {
       const a = document.createElement("a");
@@ -370,10 +556,36 @@ var DownloadManager = class {
         downloadIds.push(id);
         await new Promise((r) => setTimeout(r, 250));
       } catch (e) {
-        console.warn(`Failed downloading ${item.filename}:`, e);
+        console.warn(`[AudioFlow] Failed downloading ${item.filename}:`, e);
       }
     }
     return downloadIds;
+  }
+  /**
+   * Retry a failed download
+   */
+  async retryDownload(downloadId) {
+    const downloads = await storageService.getStoredDownloads();
+    const item = downloads.find((d) => d.downloadId === downloadId);
+    if (!item) return null;
+    try {
+      const newId = await this.startDownload({
+        url: item.url,
+        filename: item.filename,
+        audioId: item.audioId,
+        domain: item.domain,
+        size: item.size,
+        saveAs: false
+      });
+      const updated = downloads.filter((d) => d.downloadId !== downloadId);
+      await storageService.saveStoredDownloads(updated);
+      return newId;
+    } catch (e) {
+      item.error = e?.message || "Th\u1EED l\u1EA1i th\u1EA5t b\u1EA1i";
+      item.retryCount = (item.retryCount || 0) + 1;
+      await storageService.saveStoredDownloads(downloads);
+      throw e;
+    }
   }
   /**
    * Pause an active download
@@ -383,7 +595,7 @@ var DownloadManager = class {
       try {
         await chrome.downloads.pause(downloadId);
       } catch (e) {
-        console.error("Failed to pause download:", e);
+        console.error("[AudioFlow] Failed to pause download:", e);
       }
     }
   }
@@ -395,7 +607,7 @@ var DownloadManager = class {
       try {
         await chrome.downloads.resume(downloadId);
       } catch (e) {
-        console.error("Failed to resume download:", e);
+        console.error("[AudioFlow] Failed to resume download:", e);
       }
     }
   }
@@ -406,11 +618,12 @@ var DownloadManager = class {
     if (isChromeExtension2) {
       try {
         await chrome.downloads.cancel(downloadId);
+        speedTracker.delete(downloadId);
         const current = await storageService.getStoredDownloads();
         const updated = current.filter((d) => d.downloadId !== downloadId);
         await storageService.saveStoredDownloads(updated);
       } catch (e) {
-        console.error("Failed to cancel download:", e);
+        console.error("[AudioFlow] Failed to cancel download:", e);
       }
     }
   }
@@ -439,7 +652,29 @@ var DownloadManager = class {
     }
   }
   /**
-   * Query recent downloads from Chrome API
+   * Update download speed and progress from Chrome onChanged event
+   */
+  updateProgressAndSpeed(downloadId, bytesReceived) {
+    const now = Date.now();
+    const last = speedTracker.get(downloadId);
+    let speed = 0;
+    if (last) {
+      const timeDelta = (now - last.lastTime) / 1e3;
+      if (timeDelta > 0.5) {
+        const bytesDelta = bytesReceived - last.lastBytes;
+        speed = Math.max(0, bytesDelta / timeDelta);
+        speedTracker.set(downloadId, { lastBytes: bytesReceived, lastTime: now });
+      }
+    } else {
+      speedTracker.set(downloadId, { lastBytes: bytesReceived, lastTime: now });
+    }
+    return {
+      speed,
+      speedFormatted: formatSpeed(speed)
+    };
+  }
+  /**
+   * Query recent downloads from Chrome API with speed & status enrichment
    */
   async getChromeDownloads() {
     if (!isChromeExtension2) {
@@ -447,33 +682,46 @@ var DownloadManager = class {
     }
     try {
       const items = await chrome.downloads.search({
-        limit: 30,
+        limit: 35,
         orderBy: ["-startTime"]
       });
+      const stored = await storageService.getStoredDownloads();
+      const storedMap = new Map(stored.map((s) => [s.downloadId, s]));
       return items.filter((item) => {
         const ext = getExtensionFromUrl(item.filename || item.url);
         const mime = item.mime || "";
-        return mime.startsWith("audio/") || ["mp3", "wav", "flac", "aac", "m4a", "ogg", "opus", "webm"].includes(ext);
+        return mime.startsWith("audio/") || mime.startsWith("video/") || ["mp3", "wav", "flac", "aac", "m4a", "ogg", "opus", "webm", "mp4"].includes(ext);
       }).map((item) => {
         const ext = getExtensionFromUrl(item.filename || item.url);
+        const existing = storedMap.get(item.id);
+        let downloadStatus = "READY_TO_DOWNLOAD";
+        if (item.state === "in_progress") downloadStatus = "DOWNLOADING";
+        else if (item.state === "complete") downloadStatus = "COMPLETED";
+        else if (item.state === "interrupted") downloadStatus = "FAILED";
+        const { speed, speedFormatted } = this.updateProgressAndSpeed(item.id, item.bytesReceived);
         return {
           downloadId: item.id,
+          audioId: existing?.audioId,
           url: item.url,
           filename: cleanFilename(item.filename || "audio.mp3"),
           format: getFormatFromMimeOrExt(item.mime, ext),
-          size: item.totalBytes > 0 ? item.totalBytes : void 0,
+          size: item.totalBytes > 0 ? item.totalBytes : existing?.size,
           bytesReceived: item.bytesReceived,
           totalBytes: item.totalBytes,
           state: item.state,
+          downloadStatus,
           canResume: item.canResume,
           paused: item.paused,
           error: item.error,
+          speed: item.state === "in_progress" ? speed : void 0,
+          speedFormatted: item.state === "in_progress" ? speedFormatted : void 0,
           startTime: item.startTime ? new Date(item.startTime).getTime() : Date.now(),
-          domain: "web"
+          domain: existing?.domain || "web",
+          retryCount: existing?.retryCount || 0
         };
       });
     } catch (e) {
-      console.warn("Failed to query chrome downloads:", e);
+      console.warn("[AudioFlow] Failed to query chrome downloads:", e);
       return [];
     }
   }
@@ -489,7 +737,8 @@ var SUPPORTED_AUDIO_EXTENSIONS = [
   "m4a",
   "ogg",
   "opus",
-  "webm"
+  "webm",
+  "mp4"
 ];
 var AUDIO_MIME_TYPES = [
   "audio/mpeg",
@@ -505,7 +754,9 @@ var AUDIO_MIME_TYPES = [
   "audio/ogg",
   "application/ogg",
   "audio/opus",
-  "audio/webm"
+  "audio/webm",
+  "video/mp4",
+  "video/webm"
 ];
 function generateMediaId(url, pageUrl, titleHint) {
   const seed = `${url || ""}_${pageUrl || ""}_${titleHint || ""}`;
@@ -535,17 +786,24 @@ function isAudioMimeType(mimeType) {
 }
 function determineSourceType(url = "", mimeType = "") {
   const lowerUrl = url.toLowerCase();
-  if (lowerUrl.startsWith("blob:")) {
-    return "BLOB";
+  const lowerMime = mimeType.toLowerCase();
+  if (lowerUrl.includes(".m3u8") || lowerMime.includes("application/vnd.apple.mpegurl") || lowerMime.includes("application/x-mpegurl") || lowerUrl.includes(".mpd") || lowerMime.includes("application/dash+xml")) {
+    return "PLAYLIST";
   }
-  if (lowerUrl.includes(".m3u8") || lowerUrl.includes(".mpd") || lowerUrl.includes("googlevideo.com") || lowerUrl.includes("manifest") || lowerUrl.includes("stream") || lowerUrl.includes("segment")) {
-    return "STREAMING";
+  if (lowerUrl.endsWith(".ts") || lowerUrl.endsWith(".m4s") || lowerUrl.includes("seg-") || lowerUrl.includes("segment-") || lowerUrl.includes("range=")) {
+    return "MEDIA_SEGMENT";
+  }
+  if (lowerUrl.startsWith("blob:")) {
+    return "BLOB_MEDIA";
+  }
+  if (lowerUrl.includes("googlevideo.com") || lowerUrl.includes("manifest") || lowerUrl.includes("/stream/") || lowerUrl.includes("sndcdn.com/stream") || lowerUrl.includes("/hls/")) {
+    return "STREAMING_MEDIA";
   }
   if (isDirectAudioUrl(url) || isAudioMimeType(mimeType)) {
-    return "DIRECT";
+    return "DIRECT_FILE";
   }
-  if (url.startsWith("http")) {
-    return "DIRECT";
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return "DIRECT_FILE";
   }
   return "UNKNOWN";
 }
@@ -556,6 +814,7 @@ function createDetectedMediaItem(params) {
     pageUrl,
     tabId,
     title: initialTitle,
+    artist,
     mediaType = "audio",
     format: initialFormat,
     sourceType: initialSourceType,
@@ -565,7 +824,8 @@ function createDetectedMediaItem(params) {
     size,
     mimeType = "",
     downloadable: initialDownloadable,
-    downloadReason: initialReason
+    downloadReason: initialReason,
+    streamingProtocol
   } = params;
   const domain = getDomainFromUrl(pageUrl || url);
   const ext = getExtensionFromUrl(url);
@@ -574,7 +834,7 @@ function createDetectedMediaItem(params) {
   let title = (initialTitle || "").trim();
   if (!title) {
     if (domain.includes("youtube.com")) {
-      title = "YouTube Media";
+      title = "YouTube Video Media";
     } else if (domain.includes("soundcloud.com")) {
       title = "SoundCloud Track";
     } else if (url && url.startsWith("http")) {
@@ -589,33 +849,47 @@ function createDetectedMediaItem(params) {
       title = `${domain} Media`;
     }
   }
-  const cleanBase = title.replace(/\.[a-zA-Z0-9]{2,5}$/, "");
   const finalExt = format !== "unknown" ? format : "mp3";
-  const filename = cleanFilename(`${cleanBase}.${finalExt}`);
+  const filename = buildSanitizedFilename(title, artist, finalExt);
   let downloadable = false;
   let downloadReason = "";
+  let downloadStatus = "NOT_AVAILABLE";
   if (initialDownloadable !== void 0) {
     downloadable = initialDownloadable;
+    downloadStatus = downloadable ? "READY_TO_DOWNLOAD" : "NOT_AVAILABLE";
     downloadReason = initialReason || (downloadable ? "S\u1EB5n s\xE0ng t\u1EA3i v\u1EC1" : "Kh\xF4ng c\xF3 file t\u1EA3i tr\u1EF1c ti\u1EBFp");
   } else if (domain.includes("youtube.com")) {
     downloadable = false;
+    downloadStatus = "STREAMING_ONLY";
     downloadReason = "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn YouTube (DASH/Blob), tu\xE2n th\u1EE7 ch\xEDnh s\xE1ch b\u1EA3n quy\u1EC1n";
-  } else if (sourceType === "BLOB" || sourceType === "STREAMING") {
+  } else if (sourceType === "BLOB_MEDIA" || sourceType === "BLOB") {
     downloadable = false;
-    downloadReason = "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn (Streaming), kh\xF4ng c\xF3 file t\u1EA3i tr\u1EF1c ti\u1EBFp";
+    downloadStatus = "STREAMING_ONLY";
+    downloadReason = "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn qua Blob URL, kh\xF4ng c\xF3 file t\u1EA3i tr\u1EF1c ti\u1EBFp";
+  } else if (sourceType === "STREAMING_MEDIA" || sourceType === "STREAMING") {
+    downloadable = false;
+    downloadStatus = "STREAMING_ONLY";
+    downloadReason = "Ngu\u1ED3n ph\xE1t tr\u1EF1c tuy\u1EBFn (Streaming Media), kh\xF4ng c\xF3 file t\u1EA3i tr\u1EF1c ti\u1EBFp";
+  } else if (sourceType === "PLAYLIST" || sourceType === "MEDIA_SEGMENT") {
+    downloadable = false;
+    downloadStatus = "STREAMING_ONLY";
+    downloadReason = "Ngu\u1ED3n ph\xE1t qua ph\xE2n \u0111o\u1EA1n / playlist streaming";
   } else if (isDirectAudioUrl(url) || url.startsWith("http")) {
     downloadable = true;
+    downloadStatus = "READY_TO_DOWNLOAD";
     downloadReason = "File \xE2m thanh tr\u1EF1c ti\u1EBFp s\u1EB5n s\xE0ng t\u1EA3i v\u1EC1";
   } else {
     downloadable = false;
+    downloadStatus = "NOT_AVAILABLE";
     downloadReason = "Ch\u01B0a x\xE1c \u0111\u1ECBnh \u0111\u01B0\u1EE3c li\xEAn k\u1EBFt t\u1EA3i tr\u1EF1c ti\u1EBFp";
   }
-  const id = generateMediaId(url, pageUrl, title);
+  const id = generateMediaId(url, pageUrl, `${title}_${artist || ""}`);
   const now = Date.now();
   return {
     id,
     tabId,
     title,
+    artist,
     filename,
     website: domain,
     pageUrl,
@@ -624,11 +898,13 @@ function createDetectedMediaItem(params) {
     format: format !== "unknown" ? format : "mp3",
     sourceType,
     status,
+    downloadStatus,
     duration: duration && duration > 0 ? duration : void 0,
     currentTime: currentTime && currentTime >= 0 ? currentTime : void 0,
     size: size && size > 0 ? size : void 0,
     downloadable,
     downloadReason,
+    streamingProtocol,
     source,
     mimeType,
     detectedAt: now,
@@ -866,6 +1142,7 @@ chrome.runtime.onMessage.addListener(
           await updateTabBadge(tabId);
           return { success: true };
         }
+        case "VALIDATE_AND_DOWNLOAD":
         case "START_DOWNLOAD": {
           const payload = message.payload;
           if (!payload || !payload.url) {
@@ -884,6 +1161,17 @@ chrome.runtime.onMessage.addListener(
           } catch (err) {
             return { success: false, error: err?.message || "Download failed" };
           }
+        }
+        case "RETRY_DOWNLOAD": {
+          if (message.payload?.downloadId) {
+            try {
+              const newId = await downloadManager.retryDownload(message.payload.downloadId);
+              return { success: true, downloadId: newId };
+            } catch (err) {
+              return { success: false, error: err?.message || "Th\u1EED l\u1EA1i th\u1EA5t b\u1EA1i" };
+            }
+          }
+          return { success: false, error: "downloadId is required" };
         }
         case "PAUSE_DOWNLOAD": {
           if (message.payload?.downloadId) {

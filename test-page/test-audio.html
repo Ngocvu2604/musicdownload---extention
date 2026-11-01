@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AudioFlow Complete Test Suite - Audio & Video Detection</title>
+  <title>AudioFlow V2 Complete Test Suite - Media Detection & Download Engine</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #101114;
       color: #FFFFFF;
-      max-width: 860px;
+      max-width: 900px;
       margin: 30px auto;
       padding: 0 24px;
       line-height: 1.6;
@@ -42,6 +42,8 @@
     button.btn-primary:hover { opacity: 0.9; }
     button.btn-accent { background: #06B6D4; color: #000; border: none; }
     button.btn-accent:hover { background: #22D3EE; }
+    button.btn-danger { background: #EF4444; color: #fff; border: none; }
+    button.btn-danger:hover { background: #DC2626; }
     a.download-btn {
       display: inline-flex;
       align-items: center;
@@ -78,20 +80,27 @@
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #6B7280; }
     .dot.playing { background: #22D3EE; box-shadow: 0 0 8px #22D3EE; }
     .dot.paused { background: #F59E0B; }
+    .simulated-box {
+      border: 1px dashed #4B5563;
+      border-radius: 8px;
+      padding: 12px;
+      background: #141519;
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
   <h1>
     <span>🎵 AudioFlow Verification Suite</span>
-    <span class="badge">V1.1 Engine</span>
+    <span class="badge">V2.0 Advanced Engine</span>
   </h1>
   <p style="color: #9CA3AF; font-size: 13px;">
-    Trang này cung cấp đầy đủ các môi trường âm thanh để kiểm thử toàn diện cơ chế phát hiện tự động, cập nhật Real-time và bắt trạng thái Play/Pause.
+    Trang này cung cấp đầy đủ các môi trường âm thanh để kiểm thử toàn diện: Phát hiện Play/Pause real-time, Phân loại nguồn Media (DIRECT_FILE, STREAMING_MEDIA, BLOB_MEDIA), Kiểm định nguồn thông minh (Source Pre-validation), và Cơ chế tải xuống có tính toán tốc độ.
   </p>
 
   <!-- 1. HTML5 MP3 Audio with Interactive Controls -->
   <div class="card">
-    <h2>1. HTML5 Audio (Direct MP3 & Controls)</h2>
+    <h2>1. HTML5 Audio (Direct MP3 & Dynamic Source Switch)</h2>
     <p style="font-size: 12px; color: #9CA3AF;">Track mẫu Creative Commons từ Internet Archive:</p>
     <audio id="audio-1" controls preload="metadata" title="Mozart Piano Sonata No. 16 (Allegro)">
       <source src="https://ia800301.us.archive.org/15/items/testmp3testfile/mp3test.mp3" type="audio/mpeg">
@@ -103,15 +112,15 @@
     <div class="btn-group">
       <button class="btn btn-primary" id="btn-play-1">▶ Phát Audio 1</button>
       <button class="btn" id="btn-pause-1">⏸ Tạm dừng Audio 1</button>
-      <button class="btn btn-accent" id="btn-change-source-1">🔄 Đổi sang nguồn khác (Guitar Strum)</button>
+      <button class="btn btn-accent" id="btn-change-source-1">🔄 Đổi nguồn sang Light Rain (OGG)</button>
     </div>
   </div>
 
-  <!-- 2. HTML5 WAV Audio Element -->
+  <!-- 2. HTML5 OGG/WAV Audio Element -->
   <div class="card">
-    <h2>2. HTML5 WAV Audio Element</h2>
-    <p style="font-size: 12px; color: #9CA3AF;">Hiệu ứng âm thanh chuẩn định dạng WAV:</p>
-    <audio id="audio-2" controls preload="metadata" title="Percussion Sound Sample (WAV)">
+    <h2>2. HTML5 Audio Sample (Direct OGG/WAV)</h2>
+    <p style="font-size: 12px; color: #9CA3AF;">Hiệu ứng âm thanh chuẩn định dạng từ Google Sounds Archive:</p>
+    <audio id="audio-2" controls preload="metadata" title="Wood Plank Flicks (OGG)">
       <source src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" type="audio/ogg">
     </audio>
     <div class="status-indicator">
@@ -119,7 +128,7 @@
       <span id="status-2">Trạng thái: Sẵn sàng</span>
     </div>
     <div class="btn-group">
-      <button class="btn btn-primary" id="btn-play-2">▶ Phát WAV</button>
+      <button class="btn btn-primary" id="btn-play-2">▶ Phát OGG</button>
       <button class="btn" id="btn-pause-2">⏸ Tạm dừng</button>
     </div>
   </div>
@@ -143,8 +152,8 @@
 
   <!-- 4. Direct Audio Download Links -->
   <div class="card">
-    <h2>4. Các liên kết tải file âm thanh trực tiếp (Direct Links)</h2>
-    <p style="font-size: 12px; color: #9CA3AF;">Các liên kết trỏ tới file MP3, OGG, WAV công khai:</p>
+    <h2>4. Các liên kết tải file âm thanh trực tiếp (Direct Download Links)</h2>
+    <p style="font-size: 12px; color: #9CA3AF;">Các liên kết trỏ tới file MP3, OGG công khai:</p>
     <div class="btn-group" style="margin-top: 8px;">
       <a class="download-btn" href="https://ia800301.us.archive.org/15/items/testmp3testfile/mp3test.mp3" download="sample_classic.mp3" title="Classic Test Track">
         ⬇ Liên kết tải file MP3 mẫu
@@ -158,16 +167,55 @@
     </div>
   </div>
 
-  <!-- 5. Dynamic Injection (MutationObserver test) -->
+  <!-- 5. Smart Source Validation Test (Invalid Link / HTML Response Interception) -->
   <div class="card">
-    <h2>5. Chèn Audio Động (MutationObserver Test)</h2>
+    <h2>5. Kiểm thử Smart Source Validation (Chống tải file hỏng/HTML giả mạo)</h2>
+    <p style="font-size: 12px; color: #9CA3AF;">
+      Khi website trả về mã lỗi 404 hoặc trả về trang web HTML thay vì file âm thanh, AudioFlow V2 sẽ thực hiện pre-validation bằng HEAD request và chặn tải file hỏng:
+    </p>
+    <div class="btn-group">
+      <a class="download-btn" href="https://httpbin.org/status/404" download="corrupted_audio.mp3" title="Link lỗi 404 (Không tồn tại)">
+        ⚠️ Thử tải Link lỗi 404 (Sẽ bị AudioFlow chặn báo lỗi rõ ràng)
+      </a>
+      <a class="download-btn" href="https://httpbin.org/html" download="fake_audio.mp3" title="Link trả về HTML giả danh audio">
+        ⚠️ Thử tải Link trả về trang HTML (Chặn lưu trang HTML dưới dạng MP3)
+      </a>
+    </div>
+  </div>
+
+  <!-- 6. Simulated SoundCloud Player -->
+  <div class="card">
+    <h2>6. Mô phỏng cấu trúc SoundCloud (Artist, Track Title, Free Download Button)</h2>
+    <p style="font-size: 12px; color: #9CA3AF;">
+      Kiểm thử cơ chế bóc tách Nghệ sĩ, Tên bài hát và Nút tải trực tiếp chính thức:
+    </p>
+    <div class="simulated-box">
+      <div class="playbackSoundBadge">
+        <a class="playbackSoundBadge__lightLink" href="#artist" style="color: #A78BFA; font-weight: bold; text-decoration: none;">Illenium Official</a>
+        <span> - </span>
+        <a class="playbackSoundBadge__titleLink" href="#track" style="color: #FFF; text-decoration: none;">Starfall (Acoustic Version)</a>
+      </div>
+      <audio id="audio-sc" controls style="margin: 8px 0;">
+        <source src="https://actions.google.com/sounds/v1/music/acoustic_guitar_loop.ogg" type="audio/ogg">
+      </audio>
+      <div style="margin-top: 8px;">
+        <a class="sc-button-download download-btn" href="https://actions.google.com/sounds/v1/music/acoustic_guitar_loop.ogg" download="Illenium_Starfall.ogg">
+          ⬇ Free Download (SoundCloud Official Button)
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Dynamic Injection (MutationObserver test) -->
+  <div class="card">
+    <h2>7. Chèn Audio Động (MutationObserver Test)</h2>
     <p style="font-size: 12px; color: #9CA3AF;">Bấm nút để chèn một phần tử audio mới vào DOM bằng JavaScript:</p>
     <button class="btn btn-primary" id="btn-inject-dynamic">➕ Chèn Track Mới Vào DOM</button>
     <div id="dynamic-container" style="margin-top: 14px;"></div>
   </div>
 
   <script>
-    // Wire up interactive buttons for testing
+    // Audio 1 controls
     const a1 = document.getElementById('audio-1');
     const dot1 = document.getElementById('dot-1');
     const s1 = document.getElementById('status-1');
@@ -180,9 +228,9 @@
       a1.src = 'https://actions.google.com/sounds/v1/weather/light_rain.ogg';
       a1.title = 'Light Rain Shower (OGG)';
       a1.play();
-      alert('Đã đổi nguồn sang Light Rain Audio!');
     });
 
+    // Audio 2 controls
     const a2 = document.getElementById('audio-2');
     const dot2 = document.getElementById('dot-2');
     const s2 = document.getElementById('status-2');
@@ -191,6 +239,7 @@
     document.getElementById('btn-play-2').addEventListener('click', () => a2.play());
     document.getElementById('btn-pause-2').addEventListener('click', () => a2.pause());
 
+    // Video 1 controls
     const v1 = document.getElementById('video-1');
     const dotv1 = document.getElementById('dot-v1');
     const sv1 = document.getElementById('status-v1');

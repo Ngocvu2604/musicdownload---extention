@@ -20,6 +20,19 @@ export function formatBytes(bytes?: number, decimals = 1): string {
 }
 
 /**
+ * Format download speed in bytes/second to KB/s or MB/s
+ */
+export function formatSpeed(bytesPerSec?: number): string {
+  if (!bytesPerSec || bytesPerSec <= 0 || !isFinite(bytesPerSec)) {
+    return '-- KB/s';
+  }
+  if (bytesPerSec >= 1024 * 1024) {
+    return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+  }
+  return `${Math.round(bytesPerSec / 1024)} KB/s`;
+}
+
+/**
  * Format duration in seconds to MM:SS or HH:MM:SS
  */
 export function formatDuration(seconds?: number): string {
@@ -75,6 +88,41 @@ export function getDomainFromUrl(rawUrl: string): string {
 }
 
 /**
+ * Parse filename from Content-Disposition header
+ */
+export function parseFilenameFromContentDisposition(header?: string): string | null {
+  if (!header) return null;
+  // Match filename*="UTF-8''..." or filename="..." or filename=...
+  const utf8Match = header.match(/filename\*\s*=\s*UTF-8''([^;\r\n]+)/i);
+  if (utf8Match && utf8Match[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim());
+    } catch {
+      return utf8Match[1].trim();
+    }
+  }
+
+  const normalMatch = header.match(/filename\s*=\s*(?:"([^"]+)"|([^;\r\n]+))/i);
+  if (normalMatch) {
+    const raw = normalMatch[1] || normalMatch[2];
+    if (raw) return raw.trim();
+  }
+
+  return null;
+}
+
+/**
+ * Build sanitized filename combining artist & title
+ */
+export function buildSanitizedFilename(title: string, artist?: string, ext = 'mp3'): string {
+  let base = title.trim();
+  if (artist && artist.trim() && !base.toLowerCase().includes(artist.toLowerCase())) {
+    base = `${artist.trim()} - ${base}`;
+  }
+  return cleanFilename(base, ext);
+}
+
+/**
  * Sanitize filename to avoid invalid OS characters
  */
 export function cleanFilename(name: string, fallbackExt = 'mp3'): string {
@@ -85,14 +133,12 @@ export function cleanFilename(name: string, fallbackExt = 'mp3'): string {
   // Remove URL query params / hashes if any
   let clean = name.split('?')[0].split('#')[0];
 
-  // Decode URI components if encoded (e.g. %20 -> space)
   try {
     clean = decodeURIComponent(clean);
   } catch {
     // Keep as is if malformed
   }
 
-  // Get base name
   clean = clean.replace(/\\/g, '/');
   if (clean.includes('/')) {
     clean = clean.substring(clean.lastIndexOf('/') + 1);
@@ -136,8 +182,10 @@ export function getFormatFromMimeOrExt(mimeType?: string, ext?: string): AudioFo
   if (e === 'aac' || mime.includes('audio/aac')) return 'aac';
   if (e === 'ogg' || mime.includes('audio/ogg') || mime.includes('application/ogg')) return 'ogg';
   if (e === 'opus' || mime.includes('audio/opus')) return 'opus';
-  if (e === 'webm' || mime.includes('audio/webm')) return 'webm';
+  if (e === 'm3u8' || mime.includes('application/vnd.apple.mpegurl') || mime.includes('application/x-mpegurl')) return 'hls';
+  if (e === 'mpd' || mime.includes('application/dash+xml')) return 'dash';
+  if (e === 'mp4' || mime.includes('video/mp4') || mime.includes('audio/mp4')) return 'mp4';
+  if (e === 'webm' || mime.includes('audio/webm') || mime.includes('video/webm')) return 'webm';
 
   return 'unknown';
 }
-

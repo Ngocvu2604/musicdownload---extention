@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { DetectedMedia, MediaPlaybackStatus, MediaSourceType } from '../types/audio';
+import {
+  DetectedMedia,
+  MediaPlaybackStatus,
+  MediaSourceType,
+  DownloadStatus,
+  AudioFormat,
+} from '../types/audio';
 import { formatBytes, formatDuration } from '../utils/formatters';
 import {
   Play,
@@ -14,6 +20,9 @@ import {
   FileAudio,
   RadioTower,
   Info,
+  ListMusic,
+  Layers,
+  User,
 } from 'lucide-react';
 
 interface AudioCardProps {
@@ -49,8 +58,8 @@ export const AudioCard: React.FC<AudioCardProps> = ({
     }
   };
 
-  // Playback Status Badge Styling
-  const getStatusBadge = (status: MediaPlaybackStatus) => {
+  // Playback Status Badge
+  const getPlaybackStatusBadge = (status: MediaPlaybackStatus) => {
     switch (status) {
       case 'PLAYING':
         return (
@@ -68,7 +77,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
       case 'BUFFERING':
         return (
           <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
-            ĐANG TẢI...
+            BUFFERING...
           </span>
         );
       case 'ENDED':
@@ -85,26 +94,94 @@ export const AudioCard: React.FC<AudioCardProps> = ({
   // Source Type Badge
   const getSourceTypeBadge = (sourceType: MediaSourceType) => {
     switch (sourceType) {
+      case 'DIRECT_FILE':
+      case 'DIRECT':
+        return (
+          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            DIRECT FILE
+          </span>
+        );
+      case 'STREAMING_MEDIA':
       case 'STREAMING':
         return (
           <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">
             STREAMING
           </span>
         );
-      case 'DIRECT':
-        return (
-          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-            FILE TRỰC TIẾP
-          </span>
-        );
+      case 'BLOB_MEDIA':
       case 'BLOB':
         return (
           <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
             BLOB STREAM
           </span>
         );
+      case 'PLAYLIST':
+        return (
+          <span className="flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+            <ListMusic className="w-2.5 h-2.5" />
+            <span>PLAYLIST</span>
+          </span>
+        );
+      case 'MEDIA_SEGMENT':
+        return (
+          <span className="flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+            <Layers className="w-2.5 h-2.5" />
+            <span>SEGMENT</span>
+          </span>
+        );
       default:
         return null;
+    }
+  };
+
+  // Download Status Badge
+  const getDownloadStatusBadge = (status?: DownloadStatus) => {
+    if (!status) return null;
+    switch (status) {
+      case 'READY_TO_DOWNLOAD':
+        return (
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            TẢI ĐƯỢC
+          </span>
+        );
+      case 'STREAMING_ONLY':
+        return (
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">
+            STREAM ONLY
+          </span>
+        );
+      case 'NOT_AVAILABLE':
+        return (
+          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400 border border-gray-500/30">
+            CHỈ PHÁT
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const getFormatBadge = (fmt: AudioFormat) => {
+    switch (fmt) {
+      case 'flac':
+        return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+      case 'wav':
+        return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30';
+      case 'm4a':
+      case 'aac':
+        return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+      case 'ogg':
+      case 'opus':
+        return 'bg-rose-500/20 text-rose-400 border-rose-500/30';
+      case 'mp4':
+      case 'webm':
+        return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+      case 'hls':
+      case 'dash':
+        return 'bg-purple-500/20 text-purple-300 border-purple-500/30';
+      case 'mp3':
+      default:
+        return 'bg-[#7C3AED]/20 text-[#A78BFA] border-[#7C3AED]/30';
     }
   };
 
@@ -125,9 +202,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
   };
 
   const canPreviewDirectly = Boolean(
-    item.mediaUrl &&
-      item.mediaUrl.startsWith('http') &&
-      item.downloadable
+    item.mediaUrl && item.mediaUrl.startsWith('http') && item.downloadable
   );
 
   return (
@@ -141,7 +216,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
       }`}
     >
       <div className="flex items-start gap-2.5">
-        {/* Selection Checkbox (only for downloadable items) */}
+        {/* Selection Checkbox */}
         <div className="pt-1">
           {item.downloadable ? (
             <input
@@ -157,7 +232,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
           )}
         </div>
 
-        {/* Play Icon / Visual status circle */}
+        {/* Play Preview Circle or Animated Disc */}
         <div className="shrink-0">
           {canPreviewDirectly ? (
             <button
@@ -179,7 +254,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
             <div
               className={`w-9 h-9 rounded-full flex items-center justify-center ${
                 item.status === 'PLAYING'
-                  ? 'bg-cyan-500/20 text-[#22D3EE] border border-cyan-500/30 animate-pulse'
+                  ? 'bg-cyan-500/20 text-[#22D3EE] border border-cyan-500/30 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
                   : 'bg-[#2E303B] text-[#9CA3AF]'
               }`}
               title={`Trạng thái: ${item.status}`}
@@ -193,14 +268,19 @@ export const AudioCard: React.FC<AudioCardProps> = ({
           )}
         </div>
 
-        {/* Media Information */}
+        {/* Media Details */}
         <div className="flex-1 min-w-0">
-          {/* Header Row: Status, SourceType, Format */}
+          {/* Header Row: Status, SourceType, Format, DownloadStatus */}
           <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-            {getStatusBadge(item.status)}
+            {getPlaybackStatusBadge(item.status)}
             {getSourceTypeBadge(item.sourceType)}
+            {getDownloadStatusBadge(item.downloadStatus)}
             {item.format && item.format !== 'unknown' && (
-              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-[#7C3AED]/20 text-[#A78BFA] border border-[#7C3AED]/30">
+              <span
+                className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded border ${getFormatBadge(
+                  item.format
+                )}`}
+              >
                 {item.format}
               </span>
             )}
@@ -208,25 +288,36 @@ export const AudioCard: React.FC<AudioCardProps> = ({
 
           {/* Title */}
           <h3
-            className="text-xs font-semibold text-white truncate max-w-[210px] mb-1"
+            className="text-xs font-semibold text-white truncate max-w-[210px] mb-0.5"
             title={item.title}
           >
             {item.title}
           </h3>
 
-          {/* Subtitle / Reason / Info */}
+          {/* Artist / Channel (if present) */}
+          {item.artist && (
+            <div className="flex items-center gap-1 text-[11px] text-[#A78BFA] font-medium truncate mb-1">
+              <User className="w-3 h-3 shrink-0 opacity-80" />
+              <span className="truncate">{item.artist}</span>
+            </div>
+          )}
+
+          {/* Status Note / Reason */}
           {!item.downloadable ? (
             <p className="text-[10px] text-amber-300/90 leading-tight mb-2 flex items-center gap-1 bg-amber-500/10 p-1 rounded border border-amber-500/20">
               <Info className="w-3 h-3 shrink-0 text-amber-400" />
               <span className="truncate">{item.downloadReason}</span>
             </p>
           ) : (
-            <p className="text-[11px] text-[#9CA3AF] truncate mb-2 font-mono" title={item.filename}>
+            <p
+              className="text-[11px] text-[#9CA3AF] truncate mb-2 font-mono"
+              title={item.filename}
+            >
               {item.filename}
             </p>
           )}
 
-          {/* Metadata Chips */}
+          {/* Metadata Chips: Time, Size, Website, Protocol */}
           <div className="flex items-center flex-wrap gap-1.5 text-[10px] text-[#9CA3AF]">
             {item.duration && (
               <span className="flex items-center gap-1 bg-[#101114] px-1.5 py-0.5 rounded border border-[#2E303B]">
@@ -242,8 +333,14 @@ export const AudioCard: React.FC<AudioCardProps> = ({
 
             <span className="flex items-center gap-1 bg-[#101114] px-1.5 py-0.5 rounded border border-[#2E303B]">
               {getSourceIcon(item.source)}
-              <span className="truncate max-w-[80px]">{item.website}</span>
+              <span className="truncate max-w-[85px]">{item.website}</span>
             </span>
+
+            {item.streamingProtocol && (
+              <span className="bg-[#101114] text-violet-300 px-1.5 py-0.5 rounded border border-violet-500/30 truncate max-w-[120px]">
+                {item.streamingProtocol}
+              </span>
+            )}
           </div>
         </div>
 
@@ -253,7 +350,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
           {item.downloadable ? (
             <button
               onClick={onDownload}
-              title="Tải tệp âm thanh này"
+              title="Tải tệp âm thanh này về máy"
               className="w-8 h-8 rounded-lg bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] hover:opacity-95 text-white flex items-center justify-center transition-all shadow-sm active:scale-95"
             >
               <Download className="w-4 h-4" />
@@ -268,7 +365,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
             </button>
           )}
 
-          {/* Rename Button (only if downloadable) */}
+          {/* Rename Button (only for downloadable items) */}
           {item.downloadable && (
             <button
               onClick={onRename}
