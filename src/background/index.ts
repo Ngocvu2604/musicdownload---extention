@@ -1,6 +1,6 @@
 import { storageService } from '../storage/storageService';
 import { downloadManager } from '../services/downloadManager';
-import { createDetectedMediaItem, isAudioMimeType, isDirectAudioUrl } from '../utils/audioDetector';
+import { createDetectedMediaItem, isAudioMimeType, isDirectAudioUrl, isStreamChunkOrFragment } from '../utils/audioDetector';
 import { parseTitleAndArtistFromTab, getFormatFromMimeOrExt, getExtensionFromUrl } from '../utils/formatters';
 import { ExtensionMessage, HistoryItem, DetectedMedia } from '../types/audio';
 
@@ -78,23 +78,12 @@ chrome.webRequest.onHeadersReceived.addListener(
         const isAudio = isAudioMimeType(contentType) || isDirectAudioUrl(details.url);
         if (!isAudio) return;
 
-        // Ignore tiny HLS / DASH stream chunks (3-second fragments) that clutter the list
-        const lowerUrl = details.url.toLowerCase();
-        const isHlsSegment =
-          lowerUrl.includes('cf-hls-media.sndcdn.com') ||
-          lowerUrl.includes('cf-hls-opus.sndcdn.com') ||
-          lowerUrl.endsWith('.ts') ||
-          lowerUrl.endsWith('.m4s') ||
-          lowerUrl.includes('/segment') ||
-          lowerUrl.includes('-frag') ||
-          lowerUrl.includes('playlist.m3u8');
-
-        if (isHlsSegment && contentLength > 0 && contentLength < 350000) {
-          // Skip 50KB HLS chunks - they are not full songs
+        // Ignore HLS / DASH stream chunks (like data024.m4a, seg-1.ts, 50KB fragments)
+        if (isStreamChunkOrFragment(details.url, contentLength)) {
           return;
         }
 
-        const minBytes = (settings.minFileSizeKB || 0) * 1024;
+        const minBytes = Math.max((settings.minFileSizeKB || 0) * 1024, 150 * 1024); // Minimum 150KB for complete audio
         if (contentLength > 0 && contentLength < minBytes) {
           return;
         }

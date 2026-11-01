@@ -1,5 +1,6 @@
 import { SourceValidationResult, AudioFormat } from '../types/audio';
 import { getFormatFromMimeOrExt, parseFilenameFromContentDisposition, getExtensionFromUrl } from '../utils/formatters';
+import { isStreamChunkOrFragment } from '../utils/audioDetector';
 
 export class SourceValidator {
   /**
@@ -11,6 +12,14 @@ export class SourceValidator {
         isValid: false,
         isAudioOrVideo: false,
         error: 'URL không hợp lệ hoặc để trống',
+      };
+    }
+
+    if (isStreamChunkOrFragment(url)) {
+      return {
+        isValid: false,
+        isAudioOrVideo: false,
+        error: 'Liên kết này là phân đoạn phát luồng ngắn (chunk), không phải tệp âm thanh hoàn chỉnh MP3/WAV để tải',
       };
     }
 

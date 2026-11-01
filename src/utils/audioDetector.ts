@@ -59,10 +59,55 @@ export function generateMediaId(url: string, pageUrl: string, titleHint?: string
 }
 
 /**
+ * Detect if a URL points to an HLS/DASH chunk fragment (like data024.m4a, seg-1.ts, etc.)
+ * These fragments are short 2-3 second slices (typically 30KB - 150KB) and NOT complete songs!
+ */
+export function isStreamChunkOrFragment(rawUrl: string, sizeBytes?: number): boolean {
+  if (!rawUrl) return false;
+  const lower = rawUrl.toLowerCase();
+
+  // Known streaming chunk domains
+  if (
+    lower.includes('playback.media-streaming.soundcloud.cloud') ||
+    lower.includes('cf-hls-media.sndcdn.com') ||
+    lower.includes('cf-hls-opus.sndcdn.com') ||
+    lower.includes('googlevideo.com/videoplayback')
+  ) {
+    return true;
+  }
+
+  // Fragment filenames like data001.m4a, data024.m4a, seg-12.ts, chunk-1.m4s
+  if (
+    /data\d+\.(m4a|mp3|aac|ts|m4s)/i.test(lower) ||
+    /seg(ment)?[-_]?\d+/i.test(lower) ||
+    /frag(ment)?[-_]?\d+/i.test(lower) ||
+    /chunk[-_]?\d+/i.test(lower) ||
+    lower.endsWith('.ts') ||
+    lower.endsWith('.m4s') ||
+    lower.includes('/hls/') ||
+    lower.includes('/dash/')
+  ) {
+    if (sizeBytes !== undefined && sizeBytes < 400000) {
+      return true;
+    }
+    if (/data\d+\.(m4a|mp3|aac|ts)/i.test(lower)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Determine if a URL is a direct downloadable audio file
  */
 export function isDirectAudioUrl(rawUrl: string): boolean {
   if (!rawUrl || rawUrl.startsWith('data:') || rawUrl.startsWith('blob:')) {
+    return false;
+  }
+
+  // Never treat an HLS/DASH fragment chunk as a direct audio file!
+  if (isStreamChunkOrFragment(rawUrl)) {
     return false;
   }
 
@@ -103,8 +148,9 @@ export function determineSourceType(url: string = '', mimeType: string = ''): Me
     return 'PLAYLIST';
   }
 
-  // Media Segments
+  // Media Segments & Streaming Chunks
   if (
+    isStreamChunkOrFragment(url) ||
     lowerUrl.endsWith('.ts') ||
     lowerUrl.endsWith('.m4s') ||
     lowerUrl.includes('seg-') ||
@@ -221,7 +267,11 @@ export function createDetectedMediaItem(params: {
   let downloadReason = '';
   let downloadStatus: DownloadStatus = 'NOT_AVAILABLE';
 
-  if (initialDownloadable !== undefined) {
+  if (isStreamChunkOrFragment(url, size)) {
+    downloadable = false;
+    downloadStatus = 'STREAMING_ONLY';
+    downloadReason = 'Phân đoạn âm thanh luồng ngắn (chunk 50KB), không phải tệp MP3/WAV hoàn chỉnh';
+  } else if (initialDownloadable !== undefined) {
     downloadable = initialDownloadable;
     downloadStatus = downloadable ? 'READY_TO_DOWNLOAD' : 'NOT_AVAILABLE';
     downloadReason =

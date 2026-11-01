@@ -386,29 +386,31 @@ function scanPerformanceResources() {
 }
 
 /**
- * Scan direct download links (<a href="*.mp3">)
+ * Scan direct download links (<a href="*.mp3">, <a href="*.wav">, download buttons)
  */
 function scanDownloadLinks() {
   const links = document.querySelectorAll(
-    'a[href*=".mp3"], a[href*=".wav"], a[href*=".flac"], a[href*=".m4a"], a[href*=".aac"], a[href*=".ogg"], a[href*=".opus"], a[href*=".webm"], a[href*=".mp4"]'
+    'a[href*=".mp3"], a[href*=".wav"], a[href*=".flac"], a[href*=".m4a"], a[href*=".aac"], a[href*=".ogg"], a[href*=".opus"], a[href*=".webm"], a[href*=".mp4"], a.sc-button-download, a[href*="/download"], a[download]'
   );
 
   links.forEach((link) => {
     const href = (link as HTMLAnchorElement).href;
-    if (href && href.startsWith('http') && isDirectAudioUrl(href)) {
-      const { title, artist } = extractMediaMetadata(link as HTMLElement);
-      const item = createDetectedMediaItem({
-        url: href,
-        source: 'dom-link',
-        pageUrl: window.location.href,
-        tabId: 0,
-        title,
-        artist,
-        sourceType: 'DIRECT_FILE',
-        downloadable: true,
-        downloadReason: 'Liên kết tải âm thanh trực tiếp trên website',
-      });
-      sendMediaToBackground(item);
+    if (href && href.startsWith('http') && !href.startsWith('javascript:')) {
+      if (isDirectAudioUrl(href) || (link.classList.contains('sc-button-download') && !href.includes('javascript:'))) {
+        const { title, artist } = extractMediaMetadata(link as HTMLElement);
+        const item = createDetectedMediaItem({
+          url: href,
+          source: 'dom-link',
+          pageUrl: window.location.href,
+          tabId: 0,
+          title,
+          artist,
+          sourceType: 'DIRECT_FILE',
+          downloadable: true,
+          downloadReason: 'Liên kết tải âm thanh trực tiếp (MP3/WAV) trên website',
+        });
+        sendMediaToBackground(item);
+      }
     }
   });
 }
