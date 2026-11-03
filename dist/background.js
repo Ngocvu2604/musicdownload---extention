@@ -655,20 +655,24 @@ var SourceValidator = class {
       };
     }
     try {
+      const lowerUrl = url.toLowerCase();
+      const isKnownHeadBlockingCdn = lowerUrl.includes("tiktokcdn") || lowerUrl.includes("tiktokv") || lowerUrl.includes("byteoversea") || lowerUrl.includes("ibytedtos");
       let response = null;
-      let usedRangeGet = false;
-      try {
-        response = await fetch(url, {
-          method: "HEAD",
-          credentials: "omit",
-          headers: {
-            "Accept": "audio/*, video/*, */*"
-          }
-        });
-      } catch {
-        usedRangeGet = true;
+      let usedRangeGet = isKnownHeadBlockingCdn;
+      if (!isKnownHeadBlockingCdn) {
+        try {
+          response = await fetch(url, {
+            method: "HEAD",
+            credentials: "omit",
+            headers: {
+              "Accept": "audio/*, video/*, */*"
+            }
+          });
+        } catch {
+          usedRangeGet = true;
+        }
       }
-      if (usedRangeGet || !response || response.status === 405 || response.status === 403) {
+      if (usedRangeGet || !response || !response.ok) {
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 6e3);
@@ -676,7 +680,8 @@ var SourceValidator = class {
             method: "GET",
             headers: {
               "Range": "bytes=0-1",
-              "Accept": "audio/*, video/*, */*"
+              "Accept": "audio/*, video/*, */*",
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             },
             signal: controller.signal
           });
@@ -10779,7 +10784,7 @@ var AudioConverter = class {
   /**
    * Decode an AAC / M4A / WebM / OGG ArrayBuffer into an AudioBuffer using the browser's native decoder
    */
-  async decodeAudio(arrayBuffer) {
+  async decodeAudio(arrayBuffer, timeoutMs = 8e3) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) {
       throw new Error("Tr\xECnh duy\u1EC7t kh\xF4ng h\u1ED7 tr\u1EE3 Web Audio Context");
@@ -10794,10 +10799,19 @@ var AudioConverter = class {
       }
       const copy = arrayBuffer.slice(0);
       return await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error("Gi\u1EA3i m\xE3 \xE2m thanh qu\xE1 th\u1EDDi gian ch\u1EDD (Timeout)"));
+        }, timeoutMs);
         audioCtx.decodeAudioData(
           copy,
-          (buf) => resolve(buf),
-          (err) => reject(err || new Error("Kh\xF4ng th\u1EC3 gi\u1EA3i m\xE3 d\u1EEF li\u1EC7u \xE2m thanh"))
+          (buf) => {
+            clearTimeout(timer);
+            resolve(buf);
+          },
+          (err) => {
+            clearTimeout(timer);
+            reject(err || new Error("Kh\xF4ng th\u1EC3 gi\u1EA3i m\xE3 d\u1EEF li\u1EC7u \xE2m thanh"));
+          }
         );
       });
     } finally {
@@ -10807,9 +10821,9 @@ var AudioConverter = class {
     }
   }
   /**
-   * Encode an AudioBuffer into a standard MP3 (192 kbps) Blob
+   * Encode an AudioBuffer into a standard MP3 (192 kbps) Blob asynchronously without blocking UI
    */
-  encodeToMp3(audioBuffer, kbps = 192, onProgress) {
+  async encodeToMp3(audioBuffer, kbps = 192, onProgress) {
     const channels = Math.min(2, audioBuffer.numberOfChannels);
     const sampleRate = audioBuffer.sampleRate;
     const mp3Encoder = new Sr(channels, sampleRate, kbps);
@@ -10818,6 +10832,7 @@ var AudioConverter = class {
     const mp3Chunks = [];
     const sampleBlockSize = 1152;
     const totalSamples = leftData.length;
+    let lastYield = Date.now();
     for (let i = 0; i < totalSamples; i += sampleBlockSize) {
       const leftChunk = leftData.subarray(i, i + sampleBlockSize);
       const rightChunk = rightData ? rightData.subarray(i, i + sampleBlockSize) : void 0;
@@ -10825,8 +10840,13 @@ var AudioConverter = class {
       if (mp3buf.length > 0) {
         mp3Chunks.push(mp3buf);
       }
-      if (onProgress && i % (sampleBlockSize * 20) === 0) {
-        onProgress(Math.round(i / totalSamples * 100));
+      const now = Date.now();
+      if (now - lastYield > 40) {
+        lastYield = now;
+        if (onProgress) {
+          onProgress(Math.round(i / totalSamples * 100));
+        }
+        await new Promise((r) => setTimeout(r, 0));
       }
     }
     const endBuf = mp3Encoder.flush();
@@ -10839,9 +10859,9 @@ var AudioConverter = class {
     return new Blob(mp3Chunks, { type: "audio/mpeg" });
   }
   /**
-   * Encode an AudioBuffer into an uncompressed 16-bit PCM WAV Blob
+   * Encode an AudioBuffer into an uncompressed 16-bit PCM WAV Blob asynchronously with high performance
    */
-  encodeToWav(audioBuffer) {
+  async encodeToWav(audioBuffer, onProgress) {
     const numChannels = audioBuffer.numberOfChannels;
     const sampleRate = audioBuffer.sampleRate;
     const format = 1;
@@ -10869,18 +10889,35 @@ var AudioConverter = class {
     view.setUint16(34, bitDepth, true);
     this.writeString(view, 36, "data");
     view.setUint32(40, dataSize, true);
-    let offset = 44;
+    const pcm = new Int16Array(arrayBuffer, 44);
+    const chunkSize = 32768;
+    let lastYield = Date.now();
     for (let i = 0; i < numSamples; i++) {
       const sLeft = Math.max(-1, Math.min(1, left[i]));
-      view.setInt16(offset, sLeft < 0 ? sLeft * 32768 : sLeft * 32767, true);
-      offset += 2;
+      const leftInt = sLeft < 0 ? sLeft * 32768 : sLeft * 32767;
       if (right) {
         const sRight = Math.max(-1, Math.min(1, right[i]));
-        view.setInt16(offset, sRight < 0 ? sRight * 32768 : sRight * 32767, true);
-        offset += 2;
+        const rightInt = sRight < 0 ? sRight * 32768 : sRight * 32767;
+        pcm[i * 2] = leftInt;
+        pcm[i * 2 + 1] = rightInt;
+      } else {
+        pcm[i] = leftInt;
+      }
+      if (i % chunkSize === 0) {
+        const now = Date.now();
+        if (now - lastYield > 40) {
+          lastYield = now;
+          if (onProgress) {
+            onProgress(Math.round(i / numSamples * 100));
+          }
+          await new Promise((r) => setTimeout(r, 0));
+        }
       }
     }
-    return new Blob([view], { type: "audio/wav" });
+    if (onProgress) {
+      onProgress(100);
+    }
+    return new Blob([arrayBuffer], { type: "audio/wav" });
   }
   writeString(view, offset, string) {
     for (let i = 0; i < string.length; i++) {
@@ -10893,15 +10930,15 @@ var AudioConverter = class {
   async convertBlobToMp3(blob, kbps = 192, onProgress) {
     const arrayBuffer = await blob.arrayBuffer();
     const audioBuffer = await this.decodeAudio(arrayBuffer);
-    return this.encodeToMp3(audioBuffer, kbps, onProgress);
+    return await this.encodeToMp3(audioBuffer, kbps, onProgress);
   }
   /**
    * Convert any audio Blob to standard WAV
    */
-  async convertBlobToWav(blob) {
+  async convertBlobToWav(blob, onProgress) {
     const arrayBuffer = await blob.arrayBuffer();
     const audioBuffer = await this.decodeAudio(arrayBuffer);
-    return this.encodeToWav(audioBuffer);
+    return await this.encodeToWav(audioBuffer, onProgress);
   }
 };
 var audioConverter = new AudioConverter();
@@ -10925,7 +10962,7 @@ var LinkResolver = class {
     if (lower.includes("tiktok.com") || lower.includes("douyin.com")) {
       return "tiktok";
     }
-    if (lower.includes("soundcloud.com")) {
+    if (lower.includes("soundcloud.com") || lower.includes("on.soundcloud.com")) {
       return "soundcloud";
     }
     return "direct";
@@ -10967,6 +11004,7 @@ var LinkResolver = class {
       let html = "";
       try {
         const resp = await fetch(url, {
+          redirect: "follow",
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -11013,15 +11051,41 @@ var LinkResolver = class {
       if (transcodings.length === 0) {
         throw new Error("B\xE0i h\xE1t kh\xF4ng c\xF3 lu\u1ED3ng ph\xE1t tr\u1EF1c tuy\u1EBFn c\xF4ng khai");
       }
-      const targetTrans = transcodings.find((t) => t.format?.protocol === "hls" && t.preset?.includes("abr")) || transcodings.find((t) => t.format?.protocol === "hls") || transcodings[0];
-      const streamEndpoint = `${targetTrans.url}?client_id=${clientId}`;
-      const streamResp = await fetch(streamEndpoint);
-      if (!streamResp.ok) {
-        throw new Error(`SoundCloud t\u1EEB ch\u1ED1i c\u1EA5p lu\u1ED3ng (${streamResp.status})`);
+      const sortedTrans = [...transcodings].sort((a, b) => {
+        const aIsAac = (a.preset?.includes("aac") || a.format?.mime_type?.includes("mp4")) && a.format?.protocol === "hls";
+        const bIsAac = (b.preset?.includes("aac") || b.format?.mime_type?.includes("mp4")) && b.format?.protocol === "hls";
+        if (aIsAac && !bIsAac) return -1;
+        if (!aIsAac && bIsAac) return 1;
+        const aIsHls = a.format?.protocol === "hls";
+        const bIsHls = b.format?.protocol === "hls";
+        if (aIsHls && !bIsHls) return -1;
+        if (!aIsHls && bIsHls) return 1;
+        const aIsAbr = a.preset?.includes("abr");
+        const bIsAbr = b.preset?.includes("abr");
+        if (aIsAbr && !bIsAbr) return 1;
+        if (!aIsAbr && bIsAbr) return -1;
+        return 0;
+      });
+      let streamJson = null;
+      let lastStatus = 404;
+      for (const trans of sortedTrans) {
+        try {
+          const streamEndpoint = `${trans.url}?client_id=${clientId}`;
+          const streamResp = await fetch(streamEndpoint);
+          if (streamResp.ok) {
+            const json = await streamResp.json();
+            if (json && json.url) {
+              streamJson = json;
+              break;
+            }
+          } else {
+            lastStatus = streamResp.status;
+          }
+        } catch {
+        }
       }
-      const streamJson = await streamResp.json();
       if (!streamJson || !streamJson.url) {
-        throw new Error("Kh\xF4ng th\u1EC3 l\u1EA5y li\xEAn k\u1EBFt lu\u1ED3ng \xE2m thanh t\u1EEB SoundCloud");
+        throw new Error(`SoundCloud t\u1EEB ch\u1ED1i c\u1EA5p lu\u1ED3ng (${lastStatus})`);
       }
       const finalFmt = targetFormat === "wav" ? "wav" : "mp3";
       return {
@@ -11054,10 +11118,35 @@ var LinkResolver = class {
       const track = data.collection && data.collection[0];
       if (!track || !track.media?.transcodings?.length) return null;
       const transcodings = track.media.transcodings;
-      const targetTrans = transcodings.find((t) => t.format?.protocol === "hls" && t.preset?.includes("abr")) || transcodings.find((t) => t.format?.protocol === "hls") || transcodings[0];
-      const streamResp = await fetch(`${targetTrans.url}?client_id=${clientId}`);
-      if (!streamResp.ok) return null;
-      const streamJson = await streamResp.json();
+      const sortedTrans = [...transcodings].sort((a, b) => {
+        const aIsAac = (a.preset?.includes("aac") || a.format?.mime_type?.includes("mp4")) && a.format?.protocol === "hls";
+        const bIsAac = (b.preset?.includes("aac") || b.format?.mime_type?.includes("mp4")) && b.format?.protocol === "hls";
+        if (aIsAac && !bIsAac) return -1;
+        if (!aIsAac && bIsAac) return 1;
+        const aIsHls = a.format?.protocol === "hls";
+        const bIsHls = b.format?.protocol === "hls";
+        if (aIsHls && !bIsHls) return -1;
+        if (!aIsHls && bIsHls) return 1;
+        const aIsAbr = a.preset?.includes("abr");
+        const bIsAbr = b.preset?.includes("abr");
+        if (aIsAbr && !bIsAbr) return 1;
+        if (!aIsAbr && bIsAbr) return -1;
+        return 0;
+      });
+      let streamJson = null;
+      for (const trans of sortedTrans) {
+        try {
+          const streamResp = await fetch(`${trans.url}?client_id=${clientId}`);
+          if (streamResp.ok) {
+            const json = await streamResp.json();
+            if (json && json.url) {
+              streamJson = json;
+              break;
+            }
+          }
+        } catch {
+        }
+      }
       if (!streamJson || !streamJson.url) return null;
       const rawTitle = track.title || cleanQ;
       const artist = track.user?.username || track.user?.permalink || "SoundCloud Artist";
@@ -11078,7 +11167,22 @@ var LinkResolver = class {
    */
   async resolveTikTok(url, targetFormat) {
     try {
-      const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`;
+      let cleanUrl = url.trim();
+      if (cleanUrl.includes("vt.tiktok.com") || cleanUrl.includes("vm.tiktok.com")) {
+        try {
+          const redirectResp = await fetch(cleanUrl, {
+            redirect: "follow",
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+          });
+          if (redirectResp.ok && redirectResp.url && !redirectResp.url.includes("tiktok.com/?_r=1")) {
+            cleanUrl = redirectResp.url;
+          }
+        } catch {
+        }
+      }
+      const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(cleanUrl)}`;
       const resp = await fetch(apiUrl, {
         headers: {
           Accept: "application/json",
@@ -11101,12 +11205,14 @@ var LinkResolver = class {
           downloadUrl = json.data.play || json.data.wmplay;
           finalFormat = "mp4";
         }
-        if (downloadUrl.startsWith("/")) {
+        if (downloadUrl.startsWith("//")) {
+          downloadUrl = `https:${downloadUrl}`;
+        } else if (downloadUrl.startsWith("/")) {
           downloadUrl = `https://www.tikwm.com${downloadUrl}`;
         }
         return {
           url: downloadUrl,
-          title: cleanFilename(title),
+          title: cleanFilename(title, finalFormat),
           artist,
           format: finalFormat,
           source: "tiktok"
@@ -11512,13 +11618,22 @@ var DownloadManager = class {
             all[idx].speedFormatted = "\u0110ang chuy\u1EC3n \u0111\u1ED5i sang WAV (PCM)...";
             await storageService.saveStoredDownloads(all);
           }
-          finalBlob = await audioConverter.convertBlobToWav(stitched.blob);
+          finalBlob = await audioConverter.convertBlobToWav(stitched.blob, async (percent) => {
+            const allDownloads = await storageService.getStoredDownloads();
+            const i = allDownloads.findIndex((d) => d.downloadId === tempDownloadId);
+            if (i >= 0) {
+              allDownloads[i].speedFormatted = `\u0110ang chuy\u1EC3n \u0111\u1ED5i sang WAV (${percent}%)...`;
+              await storageService.saveStoredDownloads(allDownloads);
+            }
+          });
           finalFormat = "wav";
           finalExt = "wav";
         } catch (e) {
-          console.warn("WAV conversion fallback:", e);
+          console.warn("WAV conversion fallback to original stream:", e);
+          finalFormat = stitched.format || "m4a";
+          finalExt = finalFormat;
         }
-      } else if (preferredFormat !== "m4a") {
+      } else if (preferredFormat === "mp3" && stitched.format !== "mp3") {
         try {
           const all = await storageService.getStoredDownloads();
           const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
@@ -11542,7 +11657,7 @@ var DownloadManager = class {
           finalExt = finalFormat;
         }
       } else {
-        finalFormat = stitched.format || "m4a";
+        finalFormat = stitched.format || preferredFormat || "m4a";
         finalExt = finalFormat;
       }
       cleanName = cleanName.replace(/\.[a-zA-Z0-9]{2,5}$/, `.${finalExt}`);
@@ -11801,11 +11916,16 @@ var DownloadManager = class {
         else if (item.state === "complete") downloadStatus = "COMPLETED";
         else if (item.state === "interrupted") downloadStatus = "FAILED";
         const { speed, speedFormatted } = this.updateProgressAndSpeed(item.id, item.bytesReceived);
+        const genericNames = ["audio.mp3", "audio.wav", "media.mp3", "media.wav", "download.mp3", "download.wav"];
+        let displayFilename = existing?.filename;
+        if (!displayFilename || genericNames.includes(displayFilename.toLowerCase())) {
+          displayFilename = cleanFilename(item.filename || existing?.filename || "audio.mp3");
+        }
         return {
           downloadId: item.id,
           audioId: existing?.audioId,
           url: item.url,
-          filename: cleanFilename(item.filename || "audio.mp3"),
+          filename: displayFilename,
           format: getFormatFromMimeOrExt(item.mime, ext),
           size: item.totalBytes > 0 ? item.totalBytes : existing?.size,
           bytesReceived: item.bytesReceived,
@@ -11822,10 +11942,10 @@ var DownloadManager = class {
           retryCount: existing?.retryCount || 0
         };
       });
-      const assembling = stored.filter(
-        (s) => s.state === "in_progress" && !items.some((ci) => ci.id === s.downloadId)
+      const unlinkedStored = stored.filter(
+        (s) => !items.some((ci) => ci.id === s.downloadId)
       );
-      return [...assembling, ...chromeResults];
+      return [...unlinkedStored, ...chromeResults];
     } catch (e) {
       console.warn("[AudioFlow] Failed to query chrome downloads:", e);
       return [];

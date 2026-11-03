@@ -42,24 +42,33 @@ export class SourceValidator {
     }
 
     try {
-      // 1. First attempt: HEAD request to inspect headers without downloading body
-      let response: Response | null = null;
-      let usedRangeGet = false;
+      const lowerUrl = url.toLowerCase();
+      const isKnownHeadBlockingCdn =
+        lowerUrl.includes('tiktokcdn') ||
+        lowerUrl.includes('tiktokv') ||
+        lowerUrl.includes('byteoversea') ||
+        lowerUrl.includes('ibytedtos');
 
-      try {
-        response = await fetch(url, {
-          method: 'HEAD',
-          credentials: 'omit',
-          headers: {
-            'Accept': 'audio/*, video/*, */*',
-          },
-        });
-      } catch {
-        // If HEAD request is blocked by server (some CDNs reject HEAD), fallback to Range GET of 1 byte
-        usedRangeGet = true;
+      // 1. First attempt: HEAD request (skipped for CDNs known to reject HEAD with 503)
+      let response: Response | null = null;
+      let usedRangeGet = isKnownHeadBlockingCdn;
+
+      if (!isKnownHeadBlockingCdn) {
+        try {
+          response = await fetch(url, {
+            method: 'HEAD',
+            credentials: 'omit',
+            headers: {
+              'Accept': 'audio/*, video/*, */*',
+            },
+          });
+        } catch {
+          usedRangeGet = true;
+        }
       }
 
-      if (usedRangeGet || !response || response.status === 405 || response.status === 403) {
+      // 2. Fallback to GET with Range (0-1 byte) if HEAD was skipped or returned non-2xx status (e.g. 503, 403, 405)
+      if (usedRangeGet || !response || !response.ok) {
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 6000);
@@ -68,6 +77,8 @@ export class SourceValidator {
             headers: {
               'Range': 'bytes=0-1',
               'Accept': 'audio/*, video/*, */*',
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             },
             signal: controller.signal,
           });

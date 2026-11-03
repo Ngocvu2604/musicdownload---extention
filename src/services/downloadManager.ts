@@ -381,14 +381,23 @@ export class DownloadManager {
             all[idx].speedFormatted = 'Đang chuyển đổi sang WAV (PCM)...';
             await storageService.saveStoredDownloads(all);
           }
-          finalBlob = await audioConverter.convertBlobToWav(stitched.blob);
+          finalBlob = await audioConverter.convertBlobToWav(stitched.blob, async (percent) => {
+            const allDownloads = await storageService.getStoredDownloads();
+            const i = allDownloads.findIndex((d) => d.downloadId === tempDownloadId);
+            if (i >= 0) {
+              allDownloads[i].speedFormatted = `Đang chuyển đổi sang WAV (${percent}%)...`;
+              await storageService.saveStoredDownloads(allDownloads);
+            }
+          });
           finalFormat = 'wav';
           finalExt = 'wav';
         } catch (e) {
-          console.warn('WAV conversion fallback:', e);
+          console.warn('WAV conversion fallback to original stream:', e);
+          finalFormat = (stitched.format as any) || 'm4a';
+          finalExt = finalFormat;
         }
-      } else if (preferredFormat !== 'm4a') {
-        // MP3 conversion (DEFAULT for genuine music files!)
+      } else if (preferredFormat === 'mp3' && stitched.format !== 'mp3') {
+        // MP3 conversion only when source is not already MP3
         try {
           const all = await storageService.getStoredDownloads();
           const idx = all.findIndex((d) => d.downloadId === tempDownloadId);
@@ -412,7 +421,7 @@ export class DownloadManager {
           finalExt = finalFormat;
         }
       } else {
-        finalFormat = (stitched.format as any) || 'm4a';
+        finalFormat = (stitched.format as any) || (preferredFormat as any) || 'm4a';
         finalExt = finalFormat;
       }
 
@@ -719,11 +728,18 @@ export class DownloadManager {
 
           const { speed, speedFormatted } = this.updateProgressAndSpeed(item.id, item.bytesReceived);
 
+          // Always prefer real song title from existing stored metadata over generic 'audio.mp3'
+          const genericNames = ['audio.mp3', 'audio.wav', 'media.mp3', 'media.wav', 'download.mp3', 'download.wav'];
+          let displayFilename = existing?.filename;
+          if (!displayFilename || genericNames.includes(displayFilename.toLowerCase())) {
+            displayFilename = cleanFilename(item.filename || existing?.filename || 'audio.mp3');
+          }
+
           return {
             downloadId: item.id,
             audioId: existing?.audioId,
             url: item.url,
-            filename: cleanFilename(item.filename || 'audio.mp3'),
+            filename: displayFilename,
             format: getFormatFromMimeOrExt(item.mime, ext),
             size: item.totalBytes > 0 ? item.totalBytes : existing?.size,
             bytesReceived: item.bytesReceived,
@@ -741,12 +757,12 @@ export class DownloadManager {
           };
         });
 
-      // Include active HLS assembling downloads not yet in Chrome download manager
-      const assembling = stored.filter(
-        (s) => s.state === 'in_progress' && !items.some((ci) => ci.id === s.downloadId)
+      // Include downloads tracked in storage that are not yet or no longer in Chrome download manager
+      const unlinkedStored = stored.filter(
+        (s) => !items.some((ci) => ci.id === s.downloadId)
       );
 
-      return [...assembling, ...chromeResults];
+      return [...unlinkedStored, ...chromeResults];
     } catch (e) {
       console.warn('[AudioFlow] Failed to query chrome downloads:', e);
       return [];

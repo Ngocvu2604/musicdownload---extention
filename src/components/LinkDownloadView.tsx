@@ -72,8 +72,11 @@ export const LinkDownloadView: React.FC<LinkDownloadViewProps> = ({ onDownloadSt
       await downloadManager.startDownload({
         url: resolved.url,
         filename: `${resolved.title}.${resolved.format}`,
+        domain: resolved.source || 'media',
+        pageUrl: cleanUrl,
         targetFormat: resolved.format,
         explicitFormatSelection: true,
+        skipValidation: true,
       });
 
       setSuccessMessage(`Bắt đầu tải "${resolved.title}"`);

@@ -24,7 +24,7 @@ export class AudioConverter {
   /**
    * Decode an AAC / M4A / WebM / OGG ArrayBuffer into an AudioBuffer using the browser's native decoder
    */
-  async decodeAudio(arrayBuffer: ArrayBuffer): Promise<AudioBuffer> {
+  async decodeAudio(arrayBuffer: ArrayBuffer, timeoutMs = 8000): Promise<AudioBuffer> {
     const AudioContextClass =
       window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) {
@@ -41,10 +41,20 @@ export class AudioConverter {
       // Create a copy of the buffer because decodeAudioData detaches the input ArrayBuffer
       const copy = arrayBuffer.slice(0);
       return await new Promise<AudioBuffer>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('Giải mã âm thanh quá thời gian chờ (Timeout)'));
+        }, timeoutMs);
+
         audioCtx.decodeAudioData(
           copy,
-          (buf) => resolve(buf),
-          (err) => reject(err || new Error('Không thể giải mã dữ liệu âm thanh'))
+          (buf) => {
+            clearTimeout(timer);
+            resolve(buf);
+          },
+          (err) => {
+            clearTimeout(timer);
+            reject(err || new Error('Không thể giải mã dữ liệu âm thanh'));
+          }
         );
       });
     } finally {
@@ -55,13 +65,13 @@ export class AudioConverter {
   }
 
   /**
-   * Encode an AudioBuffer into a standard MP3 (192 kbps) Blob
+   * Encode an AudioBuffer into a standard MP3 (192 kbps) Blob asynchronously without blocking UI
    */
-  encodeToMp3(
+  async encodeToMp3(
     audioBuffer: AudioBuffer,
     kbps = 192,
     onProgress?: (percent: number) => void
-  ): Blob {
+  ): Promise<Blob> {
     const channels = Math.min(2, audioBuffer.numberOfChannels);
     const sampleRate = audioBuffer.sampleRate;
     const mp3Encoder = new Mp3Encoder(channels, sampleRate, kbps);
@@ -73,6 +83,7 @@ export class AudioConverter {
     const mp3Chunks: Uint8Array[] = [];
     const sampleBlockSize = 1152;
     const totalSamples = leftData.length;
+    let lastYield = Date.now();
 
     for (let i = 0; i < totalSamples; i += sampleBlockSize) {
       const leftChunk = leftData.subarray(i, i + sampleBlockSize);
@@ -85,8 +96,14 @@ export class AudioConverter {
         mp3Chunks.push(mp3buf);
       }
 
-      if (onProgress && i % (sampleBlockSize * 20) === 0) {
-        onProgress(Math.round((i / totalSamples) * 100));
+      const now = Date.now();
+      if (now - lastYield > 40) {
+        lastYield = now;
+        if (onProgress) {
+          onProgress(Math.round((i / totalSamples) * 100));
+        }
+        // Yield to browser event loop to prevent UI freezing
+        await new Promise((r) => setTimeout(r, 0));
       }
     }
 
@@ -103,9 +120,12 @@ export class AudioConverter {
   }
 
   /**
-   * Encode an AudioBuffer into an uncompressed 16-bit PCM WAV Blob
+   * Encode an AudioBuffer into an uncompressed 16-bit PCM WAV Blob asynchronously with high performance
    */
-  encodeToWav(audioBuffer: AudioBuffer): Blob {
+  async encodeToWav(
+    audioBuffer: AudioBuffer,
+    onProgress?: (percent: number) => void
+  ): Promise<Blob> {
     const numChannels = audioBuffer.numberOfChannels;
     const sampleRate = audioBuffer.sampleRate;
     const format = 1; // PCM
@@ -143,23 +163,41 @@ export class AudioConverter {
     this.writeString(view, 36, 'data');
     view.setUint32(40, dataSize, true);
 
-    // Write interleaved 16-bit PCM samples
-    let offset = 44;
-    for (let i = 0; i < numSamples; i++) {
-      // Left channel
-      const sLeft = Math.max(-1, Math.min(1, left[i]));
-      view.setInt16(offset, sLeft < 0 ? sLeft * 0x8000 : sLeft * 0x7fff, true);
-      offset += 2;
+    // High performance typed array PCM interleaving
+    const pcm = new Int16Array(arrayBuffer, 44);
+    const chunkSize = 32768;
+    let lastYield = Date.now();
 
-      // Right channel
+    for (let i = 0; i < numSamples; i++) {
+      const sLeft = Math.max(-1, Math.min(1, left[i]));
+      const leftInt = sLeft < 0 ? sLeft * 0x8000 : sLeft * 0x7fff;
+
       if (right) {
         const sRight = Math.max(-1, Math.min(1, right[i]));
-        view.setInt16(offset, sRight < 0 ? sRight * 0x8000 : sRight * 0x7fff, true);
-        offset += 2;
+        const rightInt = sRight < 0 ? sRight * 0x8000 : sRight * 0x7fff;
+        pcm[i * 2] = leftInt;
+        pcm[i * 2 + 1] = rightInt;
+      } else {
+        pcm[i] = leftInt;
+      }
+
+      if (i % chunkSize === 0) {
+        const now = Date.now();
+        if (now - lastYield > 40) {
+          lastYield = now;
+          if (onProgress) {
+            onProgress(Math.round((i / numSamples) * 100));
+          }
+          await new Promise((r) => setTimeout(r, 0));
+        }
       }
     }
 
-    return new Blob([view], { type: 'audio/wav' });
+    if (onProgress) {
+      onProgress(100);
+    }
+
+    return new Blob([arrayBuffer], { type: 'audio/wav' });
   }
 
   private writeString(view: DataView, offset: number, string: string): void {
@@ -178,16 +216,19 @@ export class AudioConverter {
   ): Promise<Blob> {
     const arrayBuffer = await blob.arrayBuffer();
     const audioBuffer = await this.decodeAudio(arrayBuffer);
-    return this.encodeToMp3(audioBuffer, kbps, onProgress);
+    return await this.encodeToMp3(audioBuffer, kbps, onProgress);
   }
 
   /**
    * Convert any audio Blob to standard WAV
    */
-  async convertBlobToWav(blob: Blob): Promise<Blob> {
+  async convertBlobToWav(
+    blob: Blob,
+    onProgress?: (percent: number) => void
+  ): Promise<Blob> {
     const arrayBuffer = await blob.arrayBuffer();
     const audioBuffer = await this.decodeAudio(arrayBuffer);
-    return this.encodeToWav(audioBuffer);
+    return await this.encodeToWav(audioBuffer, onProgress);
   }
 }
 

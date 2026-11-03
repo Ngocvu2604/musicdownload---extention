@@ -35,7 +35,7 @@ class LinkResolver {
     if (lower.includes('tiktok.com') || lower.includes('douyin.com')) {
       return 'tiktok';
     }
-    if (lower.includes('soundcloud.com')) {
+    if (lower.includes('soundcloud.com') || lower.includes('on.soundcloud.com')) {
       return 'soundcloud';
     }
     return 'direct';
@@ -86,6 +86,7 @@ class LinkResolver {
       // 1. Fetch the SoundCloud track page HTML
       try {
         const resp = await fetch(url, {
+          redirect: 'follow',
           headers: {
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -141,23 +142,48 @@ class LinkResolver {
         throw new Error('Bài hát không có luồng phát trực tuyến công khai');
       }
 
-      // Prefer HLS stream (AAC or MP3)
-      const targetTrans =
-        transcodings.find((t) => t.format?.protocol === 'hls' && t.preset?.includes('abr')) ||
-        transcodings.find((t) => t.format?.protocol === 'hls') ||
-        transcodings[0];
+      // Sort transcodings: Prioritize working AAC/MP4 HLS, avoid broken legacy abr_sq (which gives 404)
+      const sortedTrans = [...transcodings].sort((a, b) => {
+        const aIsAac = (a.preset?.includes('aac') || a.format?.mime_type?.includes('mp4')) && a.format?.protocol === 'hls';
+        const bIsAac = (b.preset?.includes('aac') || b.format?.mime_type?.includes('mp4')) && b.format?.protocol === 'hls';
+        if (aIsAac && !bIsAac) return -1;
+        if (!aIsAac && bIsAac) return 1;
 
-      // 4. Retrieve Client ID and resolve stream URL
-      const streamEndpoint = `${targetTrans.url}?client_id=${clientId}`;
+        const aIsHls = a.format?.protocol === 'hls';
+        const bIsHls = b.format?.protocol === 'hls';
+        if (aIsHls && !bIsHls) return -1;
+        if (!aIsHls && bIsHls) return 1;
 
-      const streamResp = await fetch(streamEndpoint);
-      if (!streamResp.ok) {
-        throw new Error(`SoundCloud từ chối cấp luồng (${streamResp.status})`);
+        const aIsAbr = a.preset?.includes('abr');
+        const bIsAbr = b.preset?.includes('abr');
+        if (aIsAbr && !bIsAbr) return 1;
+        if (!aIsAbr && bIsAbr) return -1;
+
+        return 0;
+      });
+
+      // 4. Try available transcodings until a stream URL is successfully acquired
+      let streamJson: any = null;
+      let lastStatus = 404;
+
+      for (const trans of sortedTrans) {
+        try {
+          const streamEndpoint = `${trans.url}?client_id=${clientId}`;
+          const streamResp = await fetch(streamEndpoint);
+          if (streamResp.ok) {
+            const json = await streamResp.json();
+            if (json && json.url) {
+              streamJson = json;
+              break;
+            }
+          } else {
+            lastStatus = streamResp.status;
+          }
+        } catch {}
       }
 
-      const streamJson = await streamResp.json();
       if (!streamJson || !streamJson.url) {
-        throw new Error('Không thể lấy liên kết luồng âm thanh từ SoundCloud');
+        throw new Error(`SoundCloud từ chối cấp luồng (${lastStatus})`);
       }
 
       const finalFmt = targetFormat === 'wav' ? 'wav' : 'mp3';
@@ -198,14 +224,39 @@ class LinkResolver {
       if (!track || !track.media?.transcodings?.length) return null;
 
       const transcodings = track.media.transcodings;
-      const targetTrans =
-        transcodings.find((t: any) => t.format?.protocol === 'hls' && t.preset?.includes('abr')) ||
-        transcodings.find((t: any) => t.format?.protocol === 'hls') ||
-        transcodings[0];
+      const sortedTrans = [...transcodings].sort((a: any, b: any) => {
+        const aIsAac = (a.preset?.includes('aac') || a.format?.mime_type?.includes('mp4')) && a.format?.protocol === 'hls';
+        const bIsAac = (b.preset?.includes('aac') || b.format?.mime_type?.includes('mp4')) && b.format?.protocol === 'hls';
+        if (aIsAac && !bIsAac) return -1;
+        if (!aIsAac && bIsAac) return 1;
 
-      const streamResp = await fetch(`${targetTrans.url}?client_id=${clientId}`);
-      if (!streamResp.ok) return null;
-      const streamJson = await streamResp.json();
+        const aIsHls = a.format?.protocol === 'hls';
+        const bIsHls = b.format?.protocol === 'hls';
+        if (aIsHls && !bIsHls) return -1;
+        if (!aIsHls && bIsHls) return 1;
+
+        const aIsAbr = a.preset?.includes('abr');
+        const bIsAbr = b.preset?.includes('abr');
+        if (aIsAbr && !bIsAbr) return 1;
+        if (!aIsAbr && bIsAbr) return -1;
+
+        return 0;
+      });
+
+      let streamJson: any = null;
+      for (const trans of sortedTrans) {
+        try {
+          const streamResp = await fetch(`${trans.url}?client_id=${clientId}`);
+          if (streamResp.ok) {
+            const json = await streamResp.json();
+            if (json && json.url) {
+              streamJson = json;
+              break;
+            }
+          }
+        } catch {}
+      }
+
       if (!streamJson || !streamJson.url) return null;
 
       const rawTitle = track.title || cleanQ;
@@ -232,7 +283,25 @@ class LinkResolver {
     targetFormat: 'mp4' | 'mp3' | 'wav'
   ): Promise<ResolvedMediaResult> {
     try {
-      const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`;
+      let cleanUrl = url.trim();
+
+      // Resolve redirect for mobile shortlinks (vt.tiktok.com / vm.tiktok.com)
+      if (cleanUrl.includes('vt.tiktok.com') || cleanUrl.includes('vm.tiktok.com')) {
+        try {
+          const redirectResp = await fetch(cleanUrl, {
+            redirect: 'follow',
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+          });
+          if (redirectResp.ok && redirectResp.url && !redirectResp.url.includes('tiktok.com/?_r=1')) {
+            cleanUrl = redirectResp.url;
+          }
+        } catch {}
+      }
+
+      const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(cleanUrl)}`;
       const resp = await fetch(apiUrl, {
         headers: {
           Accept: 'application/json',
@@ -262,13 +331,15 @@ class LinkResolver {
           finalFormat = 'mp4';
         }
 
-        if (downloadUrl.startsWith('/')) {
+        if (downloadUrl.startsWith('//')) {
+          downloadUrl = `https:${downloadUrl}`;
+        } else if (downloadUrl.startsWith('/')) {
           downloadUrl = `https://www.tikwm.com${downloadUrl}`;
         }
 
         return {
           url: downloadUrl,
-          title: cleanFilename(title),
+          title: cleanFilename(title, finalFormat),
           artist,
           format: finalFormat,
           source: 'tiktok',
